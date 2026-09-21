@@ -1,0 +1,298 @@
+shared:
+  web_input: &web_input
+    - flask.request.args.get
+    - flask.request.args
+    - flask.request.form.*
+    - flask.request.form
+    - flask.request.values.*
+    - flask.request.json
+    - flask.request.get_json
+    - flask.request.data
+    - flask.request.cookies.*
+    - flask.request.headers.*
+    - flask.request.files.*
+    - flask.request.view_args
+    - flask.request.query_string
+    - flask.request.full_path
+    - flask.request.path
+    - "*.GET.get"
+    - "*.POST.get"
+    - "*.GET"
+    - "*.POST"
+    - "*.COOKIES"
+    - "*.query_params.*"
+    - "*.path_params.*"
+    - "*.query_params"
+    - "*.recv"
+    - "*.recvfrom"
+  process_input: &process_input
+    - os.environ.get
+    - os.environ
+    - os.getenv
+    - sys.argv
+    - input
+
+rules:
+  - id: py.sql-injection
+    severity: critical
+    cwe: CWE-89
+    message: "Untrusted input reaches a SQL query without parameterization"
+    kind: taint
+    sources:
+      - *web_input
+      - *process_input
+    sinks:
+      - pattern: "*.execute"
+        arg: 0
+      - pattern: "*.executemany"
+        arg: 0
+      - pattern: "*.executescript"
+        arg: 0
+      - pattern: "*.raw"
+        arg: 0
+      - pattern: "*.extra"
+        arg: any
+      - pattern: sqlalchemy.text
+        arg: 0
+      - pattern: "*.from_statement"
+        arg: 0
+    sanitizers:
+      - pattern: myapp.db.quote_identifier
+      - pattern: "*.quote_identifier"
+      - pattern: psycopg2.sql.Identifier
+      - pattern: psycopg2.sql.Literal
+      - pattern: "*.quote_ident"
+      - pattern: sqlalchemy.bindparam
+      - pattern: "*.bindparam"
+
+  - id: py.command-injection
+    severity: critical
+    cwe: CWE-78
+    message: "Untrusted input reaches a shell command"
+    kind: taint
+    sources:
+      - *web_input
+      - *process_input
+    sinks:
+      - pattern: os.system
+        arg: 0
+      - pattern: os.popen
+        arg: 0
+      - pattern: "os.exec*"
+        arg: any
+      - pattern: "os.spawn*"
+        arg: any
+      - pattern: subprocess.run
+        arg: 0
+        when: {kwarg: shell, equals: true}
+      - pattern: subprocess.call
+        arg: 0
+        when: {kwarg: shell, equals: true}
+      - pattern: subprocess.check_call
+        arg: 0
+        when: {kwarg: shell, equals: true}
+      - pattern: subprocess.check_output
+        arg: 0
+        when: {kwarg: shell, equals: true}
+      - pattern: subprocess.Popen
+        arg: 0
+        when: {kwarg: shell, equals: true}
+      - pattern: subprocess.getoutput
+        arg: 0
+      - pattern: subprocess.getstatusoutput
+        arg: 0
+      - pattern: pty.spawn
+        arg: 0
+      - pattern: commands.getoutput
+        arg: 0
+    sanitizers:
+      - pattern: shlex.quote
+      - pattern: pipes.quote
+      - pattern: "*.shlex_quote"
+
+  - id: py.path-traversal
+    severity: high
+    cwe: CWE-22
+    message: "Untrusted input reaches a filesystem path without normalization"
+    kind: taint
+    sources: *web_input
+    sinks:
+      - pattern: open
+        arg: 0
+      - pattern: io.open
+        arg: 0
+      - pattern: codecs.open
+        arg: 0
+      - pattern: os.remove
+        arg: 0
+      - pattern: os.unlink
+        arg: 0
+      - pattern: os.rmdir
+        arg: 0
+      - pattern: os.mkdir
+        arg: 0
+      - pattern: os.makedirs
+        arg: 0
+      - pattern: os.rename
+        arg: any
+      - pattern: shutil.copy
+        arg: any
+      - pattern: shutil.copyfile
+        arg: any
+      - pattern: shutil.move
+        arg: any
+      - pattern: shutil.rmtree
+        arg: 0
+      - pattern: flask.send_file
+        arg: 0
+      - pattern: flask.send_from_directory
+        arg: 1
+      - pattern: "*.save"
+        arg: 0
+    sanitizers:
+      - pattern: werkzeug.utils.secure_filename
+      - pattern: "*.secure_filename"
+      - pattern: os.path.basename
+      - pattern: posixpath.basename
+      - pattern: ntpath.basename
+      - pattern: "*.safe_join"
+      - pattern: werkzeug.security.safe_join
+
+  - id: py.ssrf
+    severity: high
+    cwe: CWE-918
+    message: "Untrusted input controls the target of an outbound request"
+    kind: taint
+    sources: *web_input
+    sinks:
+      - pattern: "requests.*"
+        arg: 0
+      - pattern: urllib.request.urlopen
+        arg: 0
+      - pattern: urllib.request.Request
+        arg: 0
+      - pattern: urllib.request.urlretrieve
+        arg: 0
+      - pattern: "httpx.*"
+        arg: 0
+      - pattern: "*.ClientSession.*"
+        arg: 0
+      - pattern: "*.PoolManager.request"
+        arg: 1
+      - pattern: "*.urlopen"
+        arg: 0
+    sanitizers:
+      - pattern: "*.validate_url"
+      - pattern: "*.is_allowed_url"
+      - pattern: "*.allowlisted_url"
+
+  - id: py.unsafe-html
+    severity: high
+    cwe: CWE-79
+    message: "Untrusted input is rendered as HTML without escaping"
+    kind: taint
+    sources: *web_input
+    sinks:
+      - pattern: flask.render_template_string
+        arg: 0
+      - pattern: "*.render_template_string"
+        arg: 0
+      - pattern: markupsafe.Markup
+        arg: 0
+      - pattern: flask.Markup
+        arg: 0
+      - pattern: "*.mark_safe"
+        arg: 0
+      - pattern: django.utils.safestring.mark_safe
+        arg: 0
+      - pattern: jinja2.Template
+        arg: 0
+      - pattern: django.http.HttpResponse
+        arg: 0
+      - pattern: "*.HttpResponse"
+        arg: 0
+    sanitizers:
+      - pattern: html.escape
+      - pattern: cgi.escape
+      - pattern: markupsafe.escape
+      - pattern: "*.escape"
+      - pattern: bleach.clean
+      - pattern: django.utils.html.escape
+
+  - id: py.insecure-deserialization
+    severity: critical
+    cwe: CWE-502
+    message: "Untrusted input is deserialized by a format that can execute code"
+    kind: taint
+    sources:
+      - *web_input
+      - *process_input
+    sinks:
+      - pattern: pickle.loads
+        arg: 0
+      - pattern: pickle.load
+        arg: 0
+      - pattern: cPickle.loads
+        arg: 0
+      - pattern: cPickle.load
+        arg: 0
+      - pattern: dill.loads
+        arg: 0
+      - pattern: marshal.loads
+        arg: 0
+      - pattern: jsonpickle.decode
+        arg: 0
+      - pattern: yaml.unsafe_load
+        arg: 0
+      - pattern: yaml.load
+        arg: 0
+        when: {kwarg: Loader, absent: true}
+      - pattern: "*.load_module"
+        arg: 0
+    sanitizers: []
+
+  - id: py.hardcoded-secret
+    severity: high
+    cwe: CWE-798
+    message: "Hard-coded credential"
+    kind: pattern
+    match:
+      assigned_to:
+        - "*_key"
+        - "*_secret"
+        - "*secret*"
+        - "*password*"
+        - "*passwd*"
+        - "*_token"
+        - "*token*"
+        - "*apikey*"
+        - "*api_key*"
+        - "*credential*"
+        - "*private_key*"
+        - "*access_key*"
+        - "*auth_token*"
+      value: literal_string
+      min_entropy: 4.0
+      min_length: 12
+      min_charset_classes: 2
+      exclude:
+        - "* *"
+        - "*://*"
+        - "/*"
+        - "*example*"
+        - "*changeme*"
+        - "*change-me*"
+        - "*placeholder*"
+        - "*redacted*"
+        - "*dummy*"
+        - "*your-*"
+        - "*your_*"
+        - "*xxxx*"
+        - "*<*>*"
+        - "*${*"
+        - "*%s*"
+        - "*{0}*"
+        - "*{}*"
+        - "*not-a-real*"
+        - "*fake*"
+        - "*sample*"

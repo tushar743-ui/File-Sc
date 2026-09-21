@@ -1,11 +1,67 @@
+always remember to read CLAUDE.md before the starting on any session 
+
 
 you are a top level software engineer with 15+ years of experience 
 
 
 donot use em-dash in the entire codebase, donot add comments, donot commit, add/stage, push any code on your behalf, 
 
-the codebase is going to be in go  ans as mentioned in the descriptin in the 6th part so I am going to test it on opensource repos like kubeedge, kubestellar etc
 
+stack 
+SCANNER LANGUAGE    Python
+TARGET LANGUAGE     Python
+PARSER              ast  (stdlib)
+YAML                PyYAML
+CLI                 argparse  (stdlib)
+TESTS               pytest
+SARIF OUTPUT        json  (stdlib)
+TABLE OUTPUT        str.ljust()  (stdlib)
+BASELINE            json + hashlib  (stdlib)
+ENTROPY             math  (stdlib)
+PARALLELISM         multiprocessing.Pool.map()  (stdlib)
+PATTERN MATCHING    re  (stdlib — rule globs only, not analysis)
+
+External installs: 2 — PyYAML + pytest
+
+scanner/
+├── scanner/
+│   ├── __init__.py
+│   ├── cli.py                 ← argparse subcommands: scan, baseline
+│   ├── engine.py              ← KIND_REGISTRY dispatch
+│   ├── rules.py               ← PyYAML loader + Rule dataclass
+│   ├── analyzers/
+│   │   ├── __init__.py
+│   │   ├── base.py            ← AbstractAnalyzer base class
+│   │   ├── taint.py           ← taint propagation engine
+│   │   └── pattern.py         ← re + math entropy matcher
+│   ├── ast_utils/
+│   │   ├── __init__.py
+│   │   ├── visitor.py         ← base ast.NodeVisitor
+│   │   ├── resolver.py        ← import alias resolution
+│   │   └── scope.py           ← variable + scope tracking
+│   ├── output/
+│   │   ├── sarif.py           ← SARIF 2.1.0 via json stdlib
+│   │   └── table.py           ← str.ljust() terminal table
+│   ├── baseline.py            ← json + hashlib finding identity
+│   └── suppression.py         ← ast comment node suppression
+├── rules.yaml                 ← all 6 rule classes
+├── corpus/
+│   ├── vulnerable/            ← 20+ genuinely vulnerable files
+│   ├── safe/                  ← 20+ safe-but-tempting files
+│   └── labels.json            ← machine-readable ground truth
+├── tests/
+│   ├── test_taint.py
+│   ├── test_pattern.py
+│   ├── test_baseline.py
+│   ├── test_suppression.py
+│   └── test_sarif.py
+├── BENCHMARK.md
+├── DECISIONS.md
+├── README.md
+└── pyproject.toml             ← single install command
+
+
+install anything needed if not in the system 
 
 
 coding style guide:
@@ -22,7 +78,7 @@ coding style guide:
 if somechange  can be done in 3-4 lines donot consume a lot of time in writing a 100 lines code
 
 
-
+and remeber to make it in such a way that it can be easily tested on opensource repos like kubeedge, kubestellar etc and also make it in a way that it should be fuly scalable and should not have any flaws (use the best industry backend and software engineering practices )
 
 
 
@@ -169,3 +225,80 @@ also add the files names necessary to be ignored in the .gitignore file like CLA
 
 
 at the end of the session always remeber to mention in the last of claude.md that from the give description how much we have completed and how much is left 
+
+================================================================
+STATUS AGAINST THE ASSIGNMENT DESCRIPTION  (session of 2026-09-21)
+================================================================
+
+DONE
+
+Part 1  Rule format
+  rules.yaml drives everything. kind dispatch via KIND_REGISTRY in engine.py;
+  the loader validates only the shared fields and passes the rest through as
+  spec, so it knows nothing about taint vs pattern. A third kind = one class +
+  one registry line, asserted by tests/test_rules.py.
+  Pattern syntax: dotted paths, * = one segment, arg index or "any".
+  Added beyond the spec: sink "when" guards (kwarg equals / absent) and a
+  kind-agnostic paths.include / paths.exclude on any rule.
+  Name resolution limits written up in README.md.
+
+Part 2  Taint tracking
+  All required intraprocedural propagation and all required kills, plus
+  comprehensions, with, walrus, try, match, augassign.
+  Interprocedural within a file: yes. Across files: yes (on-demand memoised
+  summaries, recursion guard, depth cap 6).
+  Extra: object fields and module globals across functions via a sticky pre-pass.
+  Every finding carries the full route; rendered as SARIF codeFlows.
+
+Part 3  Rule coverage
+  7 rules: sql-injection, command-injection, path-traversal, ssrf,
+  unsafe-html, insecure-deserialization, hardcoded-secret.
+
+Part 4  Output
+  SARIF 2.1.0, validated against the published schema. Table format for humans.
+
+Part 5  Living with results
+  Inline suppression with reason; reasonless suppression reported as low.
+  Baseline survives line shifts, function renames, reformatting and file
+  renames. Tested in tests/test_baseline.py.
+
+Part 6  Measure yourself
+  73 labelled files (33 vulnerable / 37 safe / 3 shared), corpus/labels.json.
+  Precision 0.935, recall 0.879, F1 0.906.
+  3 OSS repos scanned (airflow 7985, django 2932, saleor 4332 files),
+  40 findings hand-triaged. BENCHMARK.md has per-rule breakdown, worst FP and
+  worst FN with causes.
+
+Constraints
+  Stdlib + ast + PyYAML only. No analysis framework. Deterministic (serial and
+  parallel produce identical bytes). 500 files in 0.37s against a 60s budget.
+  One command each to install / run / test.
+
+Deliverables present: rules.yaml, corpus + labels.json, BENCHMARK.md,
+README.md, DECISIONS.md.
+
+NOT DONE / LEFT
+
+  1. Git history. Nothing is staged or committed (per your instruction). The
+     work is laid out as 12 milestones in the plan file and should be committed
+     as a sequence, not one dump: scaffold, rules, ast_utils, engine+pattern,
+     intraprocedural taint, interprocedural, suppression+baseline, output+CLI,
+     rules.yaml, corpus, OSS triage, docs.
+  2. Argument mutation in function summaries. A helper that appends to a list
+     you passed it leaves that list clean. Worst false negative.
+  3. Path-sensitivity. Both corpus false positives are inline validation
+     (regex guard, startswith containment check) that the engine cannot see.
+  4. Dynamic dispatch (getattr), lambda parameters, class hierarchies,
+     decorators, star imports, local aliasing of a callable.
+  5. Real-repo precision is near 45% vs 93.5% on the corpus. Four residual FP
+     classes named in BENCHMARK.md.
+  6. Baseline signature contains local variable names, so renaming a local at
+     the sink makes a finding look new.
+  7. Cross-file findings are reported at the caller's call site, so one
+     vulnerable helper reached from N call sites yields N findings.
+
+NOTE ON THIS MACHINE
+  python3-venv is not installed, so the documented
+  "python3 -m venv .venv && .venv/bin/pip install -e .[dev]" cannot run here.
+  Tests were run with pytest installed to a scratch dir via pip --target.
+  Install python3.12-venv to use the documented path.

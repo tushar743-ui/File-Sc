@@ -1,0 +1,389 @@
+{
+  "description": "Labelled corpus for codity-scanner. expected lists the findings a correct run must produce, keyed by path relative to corpus/.",
+  "files": {
+    "safe/cmd_allowlist_lookup.py": {
+      "expected": []
+    },
+    "safe/cmd_argv_list.py": {
+      "expected": []
+    },
+    "safe/cmd_constant.py": {
+      "expected": []
+    },
+    "safe/cmd_shlex_quote.py": {
+      "expected": []
+    },
+    "safe/deser_json.py": {
+      "expected": []
+    },
+    "safe/deser_pickle_trusted.py": {
+      "expected": []
+    },
+    "safe/deser_yaml_loader.py": {
+      "expected": []
+    },
+    "safe/deser_yaml_safe.py": {
+      "expected": []
+    },
+    "safe/hard_constant_index.py": {
+      "expected": []
+    },
+    "safe/hard_constant_lookup.py": {
+      "expected": []
+    },
+    "safe/hard_int_helper.py": {
+      "expected": []
+    },
+    "safe/hard_path_containment.py": {
+      "expected": []
+    },
+    "safe/hard_reassigned_after_loop.py": {
+      "expected": []
+    },
+    "safe/hard_regex_guard.py": {
+      "expected": []
+    },
+    "safe/hard_sanitized_in_helper.py": {
+      "expected": []
+    },
+    "safe/html_bleach.py": {
+      "expected": []
+    },
+    "safe/html_escaped.py": {
+      "expected": []
+    },
+    "safe/html_template_context.py": {
+      "expected": []
+    },
+    "safe/path_basename.py": {
+      "expected": []
+    },
+    "safe/path_fixed_index.py": {
+      "expected": []
+    },
+    "safe/path_secure_filename.py": {
+      "expected": []
+    },
+    "safe/path_send_from_directory.py": {
+      "expected": []
+    },
+    "safe/secret_env.py": {
+      "expected": []
+    },
+    "safe/secret_low_entropy.py": {
+      "expected": []
+    },
+    "safe/secret_placeholders.py": {
+      "expected": []
+    },
+    "safe/sql_allowlisted_column.py": {
+      "expected": []
+    },
+    "safe/sql_constant_query.py": {
+      "expected": []
+    },
+    "safe/sql_int_coerced.py": {
+      "expected": []
+    },
+    "safe/sql_named_params.py": {
+      "expected": []
+    },
+    "safe/sql_parameterized.py": {
+      "expected": []
+    },
+    "safe/sql_reassigned.py": {
+      "expected": []
+    },
+    "safe/ssrf_allowlist.py": {
+      "expected": []
+    },
+    "safe/ssrf_constant_endpoint.py": {
+      "expected": []
+    },
+    "safe/ssrf_validated.py": {
+      "expected": []
+    },
+    "safe/suppressed_sql.py": {
+      "expected": []
+    },
+    "safe/xfile_path_secured.py": {
+      "expected": []
+    },
+    "safe/xfile_sql_parameterized.py": {
+      "expected": []
+    },
+    "shared/__init__.py": {
+      "expected": []
+    },
+    "shared/dbhelpers.py": {
+      "expected": []
+    },
+    "shared/paths.py": {
+      "expected": []
+    },
+    "vulnerable/cmd_os_system.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/cmd_popen.py": {
+      "expected": [
+        {
+          "line": 7,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/cmd_subprocess_shell.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/cmd_via_dict.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/deser_jsonpickle.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.insecure-deserialization"
+        }
+      ]
+    },
+    "vulnerable/deser_pickle.py": {
+      "expected": [
+        {
+          "line": 10,
+          "rule": "py.insecure-deserialization"
+        }
+      ]
+    },
+    "vulnerable/deser_yaml.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.insecure-deserialization"
+        }
+      ]
+    },
+    "vulnerable/hard_getattr.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/hard_lambda.py": {
+      "expected": [
+        {
+          "line": 7,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
+    "vulnerable/hard_loop_accumulate.py": {
+      "expected": [
+        {
+          "line": 11,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/hard_module_global.py": {
+      "expected": [
+        {
+          "line": 13,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
+    "vulnerable/hard_object_field.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/hard_out_param.py": {
+      "expected": [
+        {
+          "line": 11,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/hard_three_hop.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/html_mark_safe.py": {
+      "expected": [
+        {
+          "line": 6,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
+    "vulnerable/html_markup.py": {
+      "expected": [
+        {
+          "line": 7,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
+    "vulnerable/html_template_string.py": {
+      "expected": [
+        {
+          "line": 6,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
+    "vulnerable/path_delete.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/path_join.py": {
+      "expected": [
+        {
+          "line": 11,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/path_open.py": {
+      "expected": [
+        {
+          "line": 6,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/path_send_file.py": {
+      "expected": [
+        {
+          "line": 7,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/secret_api_key.py": {
+      "expected": [
+        {
+          "line": 3,
+          "rule": "py.hardcoded-secret"
+        }
+      ]
+    },
+    "vulnerable/secret_db_password.py": {
+      "expected": [
+        {
+          "line": 2,
+          "rule": "py.hardcoded-secret"
+        }
+      ]
+    },
+    "vulnerable/sql_concat.py": {
+      "expected": [
+        {
+          "line": 11,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/sql_django_raw.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/sql_format.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/sql_fstring.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/sql_percent_dict.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/ssrf_requests.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.ssrf"
+        }
+      ]
+    },
+    "vulnerable/ssrf_urlopen.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.ssrf"
+        }
+      ]
+    },
+    "vulnerable/ssrf_webhook.py": {
+      "expected": [
+        {
+          "line": 9,
+          "rule": "py.ssrf"
+        }
+      ]
+    },
+    "vulnerable/xfile_path.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/xfile_sql.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.sql-injection"
+        }
+      ]
+    }
+  }
+}

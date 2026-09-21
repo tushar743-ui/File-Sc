@@ -1,0 +1,3 @@
+DEFAULT_PASSWORD = "aaaaaaaaaaaa"
+ADMIN_TOKEN = "00000000"
+SHARED_SECRET = "aaaabbbb"

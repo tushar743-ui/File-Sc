@@ -1,0 +1,5 @@
+API_KEY = "your-api-key-here"
+DB_PASSWORD = "changeme"
+AUTH_TOKEN = "<token>"
+SESSION_SECRET = "${SESSION_SECRET}"
+TEST_API_KEY = "example-key-not-a-real-one"
