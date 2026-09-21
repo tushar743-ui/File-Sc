@@ -65,6 +65,11 @@ Two public Python repositories, scanned with the shipped `rules.yaml` on a 4-cor
 | django/django | 2,932 | 13.8s | 21 |
 | **total** | **10,922** | **53.1s** | **76** |
 
+Those times are from an idle 4-core laptop and are the best of several runs. Repeated
+under load (load average 5 on 4 cores) the same scans take 50 to 69s and 21s, so treat
+them as a range rather than a figure. Finding counts do not move. The 500-file budget
+below is measured the same way and has three orders of magnitude of headroom either way.
+
 ### Triage
 
 Every one of the 76 was read, except that the 48 Vault and Chime credential literals in
@@ -194,8 +199,8 @@ least three segments, which no two-part token shape has.
 ## Performance
 
 The 60-second budget is for 500 files. The engine does 500 files with interprocedural
-flow in **0.54s**, 2,932 files of Django in 13.8s and 7,990 files of Airflow in 39.3s,
-all on 4 cores. `tests/test_engine.py::test_five_hundred_files_scan_within_the_budget`
+flow in **0.35s to 0.54s** depending on machine load, 2,932 files of Django in 13.8s to
+21s and 7,990 files of Airflow in 39s to 69s, all on 4 cores. `tests/test_engine.py::test_five_hundred_files_scan_within_the_budget`
 asserts the budget on every run.
 
 The capabilities added in the last revision cost roughly 2x throughput, from 0.24s to

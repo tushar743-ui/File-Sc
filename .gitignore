@@ -50,3 +50,5 @@ Thumbs.db
 *.log
 .deps/
 .install-stamp
+.node_modules/
+notes.md
