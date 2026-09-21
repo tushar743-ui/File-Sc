@@ -25,6 +25,7 @@ make test                               # pytest
 make scan TARGET=./your/repo            # table output
 make sarif TARGET=./your/repo           # results.sarif
 make bench                              # score against corpus/labels.json
+make verify-sarif                       # validate SARIF against the published schema
 make baseline TARGET=./your/repo        # write .scanner-baseline.json
 make clean
 ```

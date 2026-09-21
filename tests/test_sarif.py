@@ -1,4 +1,7 @@
 import json
+from pathlib import Path
+
+import pytest
 
 from scanner.baseline import FINGERPRINT_KEY, assign_fingerprints
 from scanner.output import sarif
@@ -67,3 +70,18 @@ def test_output_is_byte_identical_across_runs(run_scan, shipped_rules, tmp_path)
     first = sarif.render(assign_fingerprints(run_scan({"app.py": VULNERABLE}, shipped_rules)), shipped_rules, str(tmp_path))
     second = sarif.render(assign_fingerprints(run_scan({"app.py": VULNERABLE}, shipped_rules)), shipped_rules, str(tmp_path))
     assert first == second
+
+
+SCHEMA_PATH = Path(__file__).with_name("sarif-schema-2.1.0.json")
+
+
+def test_document_validates_against_the_published_schema(
+    run_scan, shipped_rules, tmp_path
+):
+    jsonschema = pytest.importorskip(
+        "jsonschema", reason="run `make verify-sarif` for the schema check"
+    )
+    doc, _ = document(run_scan, shipped_rules, tmp_path)
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = list(jsonschema.Draft7Validator(schema).iter_errors(doc))
+    assert errors == []

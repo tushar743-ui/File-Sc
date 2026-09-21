@@ -3,12 +3,12 @@ ENVDIR := .venv
 DEPS := .deps
 TARGET ?= ./corpus
 RULES ?= rules.yaml
-STAMP := $(DEPS)/.stamp
+STAMP := .install-stamp
 
 PYBIN = $(shell [ -x $(ENVDIR)/bin/python ] && echo $(ENVDIR)/bin/python || echo $(PY))
-RUNNER = $(shell [ -d $(DEPS) ] && echo PYTHONPATH=$(DEPS) || echo) $(PYBIN)
+RUNNER = $(shell [ -x $(ENVDIR)/bin/python ] || echo PYTHONPATH=$(DEPS)) $(PYBIN)
 
-.PHONY: all start install test scan sarif bench baseline clean
+.PHONY: all start install test scan sarif bench baseline verify-sarif clean
 
 all: start
 
@@ -25,7 +25,7 @@ $(STAMP):
 	  $(PY) -m pip install -q --target $(DEPS) PyYAML pytest || exit 1; \
 	  echo "installed into $(DEPS) (python venv unavailable)"; \
 	fi
-	@mkdir -p $(DEPS) && touch $(STAMP)
+	@touch $(STAMP)
 
 test: install
 	@$(RUNNER) -m pytest -q
@@ -44,6 +44,11 @@ baseline: install
 	@$(RUNNER) -m scanner.cli baseline $(TARGET) --rules $(RULES) -o .scanner-baseline.json
 	@echo "wrote .scanner-baseline.json"
 
+verify-sarif: install
+	@if [ -x $(ENVDIR)/bin/pip ]; then $(ENVDIR)/bin/pip install -q jsonschema; \
+	 else $(PY) -m pip install -q --target $(DEPS) jsonschema; fi
+	@$(RUNNER) -m pytest -q tests/test_sarif.py
+
 clean:
-	@rm -rf $(ENVDIR) $(DEPS) .pytest_cache results.sarif
+	@rm -rf $(ENVDIR) $(DEPS) $(STAMP) .pytest_cache results.sarif
 	@find . -name __pycache__ -type d -prune -exec rm -rf {} +

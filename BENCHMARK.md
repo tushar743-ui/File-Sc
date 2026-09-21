@@ -207,5 +207,12 @@ profile. What buys the rest of the headroom is described in README.md under Perf
 ## Determinism
 
 `scanner scan corpus --rules rules.yaml --format sarif` produces byte-identical output
-across runs and between serial and 4-way parallel execution, verified with `cmp`. The
-SARIF validates against the published 2.1.0 schema.
+across runs and between serial and 4-way parallel execution, verified with `cmp`.
+
+The SARIF validates against the published 2.1.0 schema with zero errors. The schema is
+vendored at `tests/sarif-schema-2.1.0.json` and the check is
+`tests/test_sarif.py::test_document_validates_against_the_published_schema`. It needs a
+JSON Schema validator, which is not a dependency of this project, so it skips on a plain
+`make test` and runs under `make verify-sarif`, which installs one into the throwaway
+`.deps/` directory. The rest of `tests/test_sarif.py` asserts every field the brief
+requires without any dependency at all.
