@@ -9,8 +9,8 @@ from ..rules import Rule
 from ..suppression import NO_REASON_RULE
 
 SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
-TOOL_NAME = "codity-scanner"
-TOOL_URI = "https://github.com/codity/scanner"
+TOOL_NAME = "taintscan"
+TOOL_URI = "https://github.com/taintscan/scanner"
 SRCROOT = "%SRCROOT%"
 
 SECURITY_SEVERITY = {

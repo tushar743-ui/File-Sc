@@ -7,7 +7,7 @@ from pathlib import Path
 from .analyzers.base import Finding, sort_findings
 
 BASELINE_VERSION = 1
-FINGERPRINT_KEY = "codityFindingId/v1"
+FINGERPRINT_KEY = "taintscanFindingId/v1"
 
 
 def _digest(*parts: str) -> str:

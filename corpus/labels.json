@@ -1,5 +1,5 @@
 {
-  "description": "Labelled corpus for codity-scanner. expected lists the findings a correct run must produce, keyed by path relative to corpus/.",
+  "description": "Labelled corpus for taintscan. expected lists the findings a correct run must produce, keyed by path relative to corpus/.",
   "files": {
     "safe/cmd_allowlist_lookup.py": {
       "expected": []

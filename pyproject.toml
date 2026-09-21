@@ -1,5 +1,5 @@
 [project]
-name = "codity-scanner"
+name = "taintscan"
 version = "0.1.0"
 description = "Static taint analyzer for Python source trees"
 requires-python = ">=3.10"

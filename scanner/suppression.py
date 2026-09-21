@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from .analyzers.base import Finding
 from .rules import Rule, match_glob
 
-MARKER = "codity:"
+MARKERS = ("taintscan:", "codity:")
 ACTION = "ignore"
 
 NO_REASON_RULE = Rule(
-    id="codity.suppression-without-reason",
+    id="taintscan.suppression-without-reason",
     severity="low",
     cwe="CWE-1164",
     message="Suppression comment has no reason text",
@@ -32,9 +32,10 @@ class Suppression:
 
 def _parse_comment(text: str) -> tuple[tuple[str, ...], str] | None:
     body = text.lstrip("#").strip()
-    if not body.startswith(MARKER):
+    marker = next((m for m in MARKERS if body.startswith(m)), None)
+    if marker is None:
         return None
-    body = body[len(MARKER) :].strip()
+    body = body[len(marker) :].strip()
     if not body.startswith(ACTION):
         return None
     body = body[len(ACTION) :]

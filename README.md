@@ -1,4 +1,4 @@
-# codity-scanner
+# taintscan
 
 A static taint analyzer for Python. It parses a codebase with Python's own `ast` module,
 tracks untrusted values from where they enter to where they are dangerous, and reports
@@ -175,11 +175,12 @@ frames.
 A comment on the flagged line or directly above it suppresses the finding:
 
 ```python
-cursor.execute(query)  # codity: ignore[py.sql-injection] column name is allowlisted
+cursor.execute(query)  # taintscan: ignore[py.sql-injection] column name is allowlisted
 ```
 
-`# codity: ignore` with no bracket suppresses every rule on that line. A suppression with
-no reason text is itself reported as a low-severity finding.
+`# taintscan: ignore` with no bracket suppresses every rule on that line. A suppression with
+no reason text is itself reported as a low-severity finding. `# codity: ignore` is accepted
+as an alias of the same marker.
 
 A baseline records the findings you have decided to live with, and `--baseline` reports
 only what is new. A finding's identity is built from the rule, the file, the shape of the
