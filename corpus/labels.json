@@ -1,5 +1,5 @@
 {
-  "description": "Labelled corpus for taintscan. expected lists the findings a correct run must produce, keyed by path relative to corpus/.",
+  "description": "Labelled corpus for taintscan. expected lists the findings a correct run must produce, keyed by path relative to corpus/. Findings are reported at the sink, so a flow that crosses files is expected in the file holding the sink, once per distinct entry point.",
   "files": {
     "safe/cmd_allowlist_lookup.py": {
       "expected": []
@@ -29,6 +29,9 @@
       "expected": []
     },
     "safe/hard_constant_lookup.py": {
+      "expected": []
+    },
+    "safe/hard_inherited_method_safe.py": {
       "expected": []
     },
     "safe/hard_int_helper.py": {
@@ -65,6 +68,9 @@
       "expected": []
     },
     "safe/path_send_from_directory.py": {
+      "expected": []
+    },
+    "safe/secret_dotted_import_path.py": {
       "expected": []
     },
     "safe/secret_env.py": {
@@ -116,10 +122,24 @@
       "expected": []
     },
     "shared/dbhelpers.py": {
-      "expected": []
+      "expected": [
+        {
+          "line": 6,
+          "rule": "py.sql-injection"
+        },
+        {
+          "line": 6,
+          "rule": "py.sql-injection"
+        }
+      ]
     },
     "shared/paths.py": {
-      "expected": []
+      "expected": [
+        {
+          "line": 15,
+          "rule": "py.path-traversal"
+        }
+      ]
     },
     "vulnerable/cmd_os_system.py": {
       "expected": [
@@ -185,6 +205,14 @@
         }
       ]
     },
+    "vulnerable/hard_inherited_method.py": {
+      "expected": [
+        {
+          "line": 8,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
     "vulnerable/hard_lambda.py": {
       "expected": [
         {
@@ -226,12 +254,7 @@
       ]
     },
     "vulnerable/hard_three_hop.py": {
-      "expected": [
-        {
-          "line": 9,
-          "rule": "py.sql-injection"
-        }
-      ]
+      "expected": []
     },
     "vulnerable/html_mark_safe.py": {
       "expected": [
@@ -305,6 +328,14 @@
         }
       ]
     },
+    "vulnerable/secret_vault_token.py": {
+      "expected": [
+        {
+          "line": 1,
+          "rule": "py.hardcoded-secret"
+        }
+      ]
+    },
     "vulnerable/sql_concat.py": {
       "expected": [
         {
@@ -370,20 +401,10 @@
       ]
     },
     "vulnerable/xfile_path.py": {
-      "expected": [
-        {
-          "line": 8,
-          "rule": "py.path-traversal"
-        }
-      ]
+      "expected": []
     },
     "vulnerable/xfile_sql.py": {
-      "expected": [
-        {
-          "line": 8,
-          "rule": "py.sql-injection"
-        }
-      ]
+      "expected": []
     }
   }
 }

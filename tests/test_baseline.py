@@ -37,6 +37,15 @@ def test_finding_survives_a_function_rename(run_scan, shipped_rules):
     assert filter_new(after, baseline_for(before), {"app.py"}) == []
 
 
+def test_finding_survives_a_local_variable_rename(run_scan, shipped_rules):
+    before = run_scan({"app.py": VULNERABLE}, shipped_rules)
+    renamed = VULNERABLE.replace("name", "username")
+    after = run_scan({"app.py": renamed}, shipped_rules)
+
+    assert len(after) == 1
+    assert filter_new(after, baseline_for(before), {"app.py"}) == []
+
+
 def test_finding_survives_reformatting(run_scan, shipped_rules):
     before = run_scan({"app.py": VULNERABLE}, shipped_rules)
     reformatted = VULNERABLE.replace(

@@ -298,3 +298,213 @@ def test_taint_reaches_a_sink_through_a_module_global(run_scan, shipped_rules):
         shipped_rules,
     )
     assert [f.rule_id for f in findings] == ["py.command-injection"]
+
+
+KILLED_BY_GUARD = {
+    "regex fullmatch guard": """
+HOST = re.compile(r"\\A[a-z]+\\Z")
+
+
+def f():
+    host = request.args.get("host", "")
+    if not HOST.fullmatch(host):
+        raise ValueError("bad")
+    os.system("ping " + host)
+""",
+    "containment guard": """
+def f():
+    name = request.args.get("name", "")
+    full = os.path.abspath(os.path.join("/srv", name))
+    if not full.startswith("/srv/"):
+        raise ValueError("outside")
+    return open(full, "rb").read()
+""",
+    "allowlist membership guard": """
+ALLOWED = ("a", "b")
+
+
+def f(cursor):
+    column = request.args.get("c", "")
+    if column not in ALLOWED:
+        raise ValueError("bad column")
+    cursor.execute("SELECT " + column + " FROM t")
+""",
+}
+
+
+@pytest.mark.parametrize("name", sorted(KILLED_BY_GUARD))
+def test_validation_guard_that_exits_kills_taint(name, run_scan, shipped_rules):
+    body = "import re\n" + KILLED_BY_GUARD[name]
+    assert scan_body(run_scan, shipped_rules, body) == []
+
+
+def test_presence_check_does_not_kill_taint(run_scan, shipped_rules):
+    body = """
+def f(cursor):
+    name = request.args.get("name")
+    if not name:
+        raise ValueError("missing")
+    cursor.execute("SELECT '" + name + "'")
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_taint_survives_a_branch_that_does_not_exit(run_scan, shipped_rules):
+    body = """
+def f(cursor):
+    name = request.args.get("name")
+    if name.startswith("x"):
+        name = name.upper()
+    cursor.execute("SELECT '" + name + "'")
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_taint_flows_through_a_mutated_argument(run_scan, shipped_rules):
+    body = """
+def collect(bucket, value):
+    bucket.append(value)
+
+
+def f(cursor):
+    parts = []
+    collect(parts, request.args.get("q"))
+    cursor.execute("SELECT '" + parts[0] + "'")
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_taint_flows_through_a_locally_mutated_container(run_scan, shipped_rules):
+    body = """
+def f(cursor):
+    parts = []
+    parts.append(request.args.get("q"))
+    cursor.execute("SELECT '" + parts[0] + "'")
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_sink_reached_through_getattr_dispatch(run_scan, shipped_rules):
+    body = """
+def f():
+    command = request.args.get("cmd")
+    runner = getattr(os, "system")
+    runner("echo " + command)
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.command-injection"]
+
+
+def test_sink_reached_through_a_local_callable_alias(run_scan, shipped_rules):
+    body = """
+def f():
+    command = request.args.get("cmd")
+    runner = os.system
+    runner("echo " + command)
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.command-injection"]
+
+
+def test_sink_reached_through_a_lambda_parameter(run_scan, shipped_rules):
+    body = """
+def f():
+    command = request.args.get("cmd")
+    run = lambda value: os.system("echo " + value)
+    return run(command)
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.command-injection"]
+
+
+def test_taint_enters_through_a_constructor_argument(run_scan, shipped_rules):
+    body = """
+class Repo:
+    def __init__(self, source):
+        self.term = source.args.get("term")
+
+    def run(self, cursor):
+        cursor.execute("SELECT '" + self.term + "'")
+
+
+def f(cursor):
+    return Repo(request).run(cursor)
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_clean_constructor_field_is_not_reported(run_scan, shipped_rules):
+    body = """
+class Repo:
+    def __init__(self, source):
+        self.term = source.args.get("term")
+        self.table = "users"
+
+    def run(self, cursor):
+        cursor.execute("SELECT * FROM " + self.table)
+
+
+def f(cursor):
+    return Repo(request).run(cursor)
+"""
+    assert scan_body(run_scan, shipped_rules, body) == []
+
+
+def test_source_named_only_at_the_call_site(run_scan, shipped_rules):
+    body = """
+def read(source):
+    return source.args.get("q")
+
+
+def f(cursor):
+    cursor.execute("SELECT '" + read(request) + "'")
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.sql-injection"]
+
+
+def test_sink_reached_through_an_inherited_method(run_scan, shipped_rules):
+    body = """
+class BaseRunner:
+    def execute_now(self, command):
+        os.system(command)
+
+
+class Runner(BaseRunner):
+    pass
+
+
+def f():
+    Runner().execute_now(request.args.get("cmd"))
+"""
+    assert scan_body(run_scan, shipped_rules, body) == ["py.command-injection"]
+
+
+def test_sink_reached_through_a_base_class_in_another_file(run_scan, shipped_rules):
+    findings = run_scan(
+        {
+            "base.py": "import os\n\n\nclass BaseRunner:\n"
+            "    def execute_now(self, command):\n        os.system(command)\n",
+            "child.py": "from flask import request\n\nfrom base import BaseRunner\n\n\n"
+            "class Runner(BaseRunner):\n    pass\n\n\n"
+            "def go():\n    Runner().execute_now(request.args.get('cmd'))\n",
+        },
+        shipped_rules,
+    )
+    assert [(f.rule_id, f.file) for f in findings] == [("py.command-injection", "base.py")]
+
+
+def test_inherited_method_that_sanitizes_is_not_reported(run_scan, shipped_rules):
+    body = """
+import subprocess
+
+
+class BaseRunner:
+    def execute_now(self, command):
+        subprocess.run(["echo", command], shell=False, check=False)
+
+
+class Runner(BaseRunner):
+    pass
+
+
+def f():
+    Runner().execute_now(request.args.get("cmd"))
+"""
+    assert scan_body(run_scan, shipped_rules, body) == []

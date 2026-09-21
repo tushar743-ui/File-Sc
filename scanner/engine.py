@@ -11,7 +11,7 @@ from .analyzers.pattern import PatternAnalyzer
 from .analyzers.taint import TaintAnalyzer
 from .ast_utils.scope import ModuleInfo, build_module, module_name_for
 from .rules import Rule, RuleError
-from .suppression import apply_suppressions
+from .suppression import apply_suppressions, filter_suppressed
 
 KIND_REGISTRY = {
     "taint": TaintAnalyzer,
@@ -106,6 +106,23 @@ class ScanContext:
                 return loaded, info
         return None
 
+    def resolve_class(self, module: ModuleInfo, node: ast.AST):
+        name = module.resolver.dotted(node)
+        if not name or "?" in name:
+            return None
+        segments = name.split(".")
+        for split in range(len(segments) - 1, 0, -1):
+            target = self.index.get(".".join(segments[:split]))
+            if target is None or target == module.path:
+                continue
+            loaded = self.load(target)
+            if loaded is None:
+                continue
+            rest = ".".join(segments[split:])
+            if rest in loaded.classes:
+                return loaded, rest
+        return None
+
 
 @dataclass
 class ScanConfig:
@@ -156,15 +173,38 @@ def _scan_one(path: str) -> list[Finding]:
             if finding.rule_id not in scoped
             or scoped[finding.rule_id].applies_to(finding.file)
         ]
-    findings = apply_suppressions(findings, module.source, module.rel_path, module.lines)
-    return dedupe(sort_findings(findings))
+    local = [f for f in findings if f.file == module.rel_path]
+    foreign = [f for f in findings if f.file != module.rel_path]
+    local = apply_suppressions(local, module.source, module.rel_path, module.lines)
+    if foreign:
+        foreign = _filter_foreign(context, foreign)
+    return dedupe(sort_findings(local + foreign))
+
+
+def _filter_foreign(context: ScanContext, findings: list[Finding]) -> list[Finding]:
+    grouped: dict[str, list[Finding]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.file, []).append(finding)
+    out: list[Finding] = []
+    for rel, group in sorted(grouped.items()):
+        module = context.load(os.path.join(context.root, rel))
+        out.extend(filter_suppressed(group, module.source) if module else group)
+    return out
 
 
 def dedupe(findings: list[Finding]) -> list[Finding]:
     seen: set[tuple] = set()
     out: list[Finding] = []
     for finding in findings:
-        key = (finding.rule_id, finding.file, finding.line, finding.col, finding.end_col)
+        origin = finding.path[0] if finding.path else None
+        key = (
+            finding.rule_id,
+            finding.file,
+            finding.line,
+            finding.col,
+            finding.end_col,
+            (origin.file, origin.line, origin.col) if origin else None,
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -193,4 +233,4 @@ def scan(config: ScanConfig) -> list[Finding]:
     findings: list[Finding] = []
     for batch in batches:
         findings.extend(batch)
-    return sort_findings(findings)
+    return dedupe(sort_findings(findings))

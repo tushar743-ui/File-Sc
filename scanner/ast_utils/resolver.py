@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 from functools import lru_cache
 
 UNKNOWN = "?"
@@ -139,6 +140,11 @@ class Resolver:
             resolved = self.dotted(node.value)
             if resolved and UNKNOWN not in resolved and target.id not in self.aliases:
                 self.aliases[target.id] = resolved
+
+    def extended(self, extra: dict[str, str]) -> "Resolver":
+        clone = copy.copy(self)
+        clone.aliases = {**self.aliases, **extra}
+        return clone
 
     def dotted(self, node: ast.AST) -> str:
         parts: list[str] = []

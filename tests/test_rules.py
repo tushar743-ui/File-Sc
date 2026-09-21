@@ -74,3 +74,46 @@ def test_shipped_rules_cover_the_required_classes(shipped_rules):
         "py.hardcoded-secret",
     } <= ids
     assert all(rule.cwe.startswith("CWE-") for rule in shipped_rules)
+
+
+GUARDED = """
+import os
+
+from flask import request
+
+from myapp.security import is_clean_host
+
+
+def f():
+    host = request.args.get("host", "")
+    if not is_clean_host(host):
+        return None
+    os.system("ping " + host)
+"""
+
+GUARD_RULE = {
+    "rules": [
+        {
+            "id": "py.command-injection",
+            "severity": "critical",
+            "cwe": "CWE-78",
+            "message": "Untrusted input reaches a shell command",
+            "kind": "taint",
+            "sources": [{"pattern": "flask.request.args.get"}],
+            "sinks": [{"pattern": "os.system", "arg": 0}],
+        }
+    ]
+}
+
+
+def test_a_custom_guard_declared_in_yaml_kills_taint(run_scan):
+    from copy import deepcopy
+
+    without = parse_rules(deepcopy(GUARD_RULE), "rules.yaml")
+    assert [f.rule_id for f in run_scan({"app.py": GUARDED}, without)] == [
+        "py.command-injection"
+    ]
+
+    spec = deepcopy(GUARD_RULE)
+    spec["rules"][0]["guards"] = [{"pattern": "myapp.security.is_clean_host"}]
+    assert run_scan({"app.py": GUARDED}, parse_rules(spec, "rules.yaml")) == []

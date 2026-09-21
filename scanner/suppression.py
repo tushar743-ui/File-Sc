@@ -88,6 +88,17 @@ def _covers(suppression: Suppression, finding: Finding) -> bool:
     return any(match_glob(pattern, finding.rule_id) for pattern in suppression.rule_ids)
 
 
+def filter_suppressed(findings: list[Finding], source: str) -> list[Finding]:
+    suppressions = parse_suppressions(source)
+    if not suppressions:
+        return findings
+    return [
+        finding
+        for finding in findings
+        if not any(_covers(s, finding) for s in suppressions)
+    ]
+
+
 def apply_suppressions(
     findings: list[Finding], source: str, rel_path: str, lines: tuple[str, ...]
 ) -> list[Finding]:

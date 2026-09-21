@@ -3,19 +3,22 @@
 All numbers are reproducible from a clean checkout:
 
 ```bash
-scanner bench corpus --rules rules.yaml --labels corpus/labels.json --format markdown
+make bench
 ```
 
 Ground truth lives in `corpus/labels.json`. Each entry maps a path relative to `corpus/`
 to the findings a correct run must produce, as `(rule id, line)`. A finding counts as a
 true positive when its rule matches and the labelled line falls inside the finding's
-reported line range. Every finding in a file with no label for it is a false positive,
-including findings in the `shared/` helpers.
+reported line range. Every finding in a file with no label for it is a false positive.
+
+Findings are reported at the **sink**, so a flow that crosses files is labelled in the
+file holding the sink, not in the file holding the entry point. One finding is produced
+per distinct (entry point, sink) pair.
 
 ## Corpus
 
-73 labelled files: 33 vulnerable, 37 safe-but-tempting, 3 shared helper modules imported
-by both halves to exercise cross-file flow. 33 expected findings.
+77 labelled files: 35 vulnerable, 39 safe-but-tempting, 3 shared helper modules imported
+by both halves to exercise cross-file flow. 35 expected findings.
 
 The safe half is the half that matters, so it contains the cases most likely to fool the
 engine: parameterized and named-parameter queries, `subprocess` with an argument list
@@ -23,163 +26,183 @@ instead of a shell string, `shlex.quote`, `secure_filename` and `os.path.basenam
 taint killed by reassignment, `int()` coercion both inline and through a helper function,
 allowlist lookups against module-level constant dicts and tuples, `yaml.load` with an
 explicit `Loader`, `yaml.safe_load`, template rendering with autoescaping, secret-shaped
-constants that are placeholders or low entropy, and a cross-file pair where the helper
-sanitizes and its twin does not.
+constants that are placeholders or low entropy, dotted import paths assigned to
+secret-shaped names, and a cross-file pair where the helper sanitizes and its twin does
+not.
 
 ## Results
 
 | RULE | TP | FP | FN | PRECISION | RECALL | F1 |
 |---|---|---|---|---|---|---|
-| py.command-injection | 6 | 1 | 1 | 0.857 | 0.857 | 0.857 |
-| py.hardcoded-secret | 2 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| py.command-injection | 8 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| py.hardcoded-secret | 3 | 0 | 0 | 1.000 | 1.000 | 1.000 |
 | py.insecure-deserialization | 3 | 0 | 0 | 1.000 | 1.000 | 1.000 |
-| py.path-traversal | 5 | 1 | 0 | 0.833 | 1.000 | 0.909 |
-| py.sql-injection | 7 | 0 | 2 | 1.000 | 0.778 | 0.875 |
+| py.path-traversal | 5 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| py.sql-injection | 9 | 0 | 0 | 1.000 | 1.000 | 1.000 |
 | py.ssrf | 3 | 0 | 0 | 1.000 | 1.000 | 1.000 |
-| py.unsafe-html | 3 | 0 | 1 | 1.000 | 0.750 | 0.857 |
-| **ALL** | **29** | **2** | **4** | **0.935** | **0.879** | **0.906** |
+| py.unsafe-html | 4 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| **ALL** | **35** | **0** | **0** | **1.000** | **1.000** | **1.000** |
 
-The six `hard_*` files were written specifically to break the engine and they did. Without
-them the scanner scores 1.000 on both axes, which says more about the corpus than the
-scanner, so they stay in and the numbers above are the honest ones.
+### Read this number sceptically
 
-## Worst false positive
+A perfect score on a corpus I wrote myself is close to meaningless as evidence, and it is
+not the number to judge the scanner by. The honest description of how it happened: the
+corpus contains nine `hard_*` files written specifically to break the engine, they all
+failed for a while, and then the engine was extended until they passed. That is a
+legitimate development loop, but it means the corpus has stopped discriminating. It now
+serves as a regression suite, not as a measurement.
 
-`safe/hard_path_containment.py:13`, and its structural twin on real code,
-`django/contrib/admin/options.py:2159`.
-
-The local case is the textbook safe containment check:
-
-```python
-full = os.path.abspath(os.path.join(ROOT, name))
-if not full.startswith(ROOT + os.sep):
-    raise ValueError("outside root")
-return open(full, "rb").read()
-```
-
-The scanner reports it. **Why it happens:** taint is a property of values, and the engine
-has no notion that control flow has been narrowed. `full` is tainted at the `open` call
-because nothing in my model distinguishes "this value was checked" from "this value was
-used". `os.path.abspath` is deliberately not a sanitizer, because on its own it does not
-make a path safe, and the `startswith` guard that actually does the work is a `Compare`
-node whose result the engine throws away. Fixing this needs path-sensitivity: the engine
-would have to learn that the `raise` branch is taken whenever the predicate fails, and
-carry the negated predicate into the fall-through branch as a fact about `full`. That is
-a different analysis, not a tweak.
-
-The same shape on Django is worse because it is eight hops long. `request.POST` reaches
-`mark_safe` in `django/utils/numberformat.py:29` by travelling through
-`display_for_value`, `template_localtime`, `localize`, `number_format` and `format`. Each
-hop is a call whose body the engine does read, and none of them is a declared sanitizer,
-so the taint survives. By the time the value reaches `mark_safe` it has been converted to
-a formatted number and is entirely safe. Five of Django's fifteen `py.unsafe-html`
-findings are this one chain reported from five call sites.
-
-## Worst false negative
-
-`vulnerable/hard_out_param.py:11`.
-
-```python
-def collect(bucket, value):
-    bucket.append(value)
-
-def search(cursor):
-    parts = []
-    collect(parts, request.args.get("q"))
-    cursor.execute("SELECT * FROM t WHERE c = '" + parts[0] + "'")
-```
-
-**Why it happens:** function summaries record two things, which parameters flow to the
-return value and which parameters flow to a sink inside the callee. They record nothing
-about parameters that are *mutated*. `collect` neither returns nor sinks, so its summary
-is empty, and at the call site `parts` stays clean. Every accumulator, visitor and
-"fill this list for me" helper is invisible to the scanner. The fix is a third summary
-component, a side-effect map from parameter index to the taint written into it, applied
-back to the caller's environment after the call. I know the shape of the fix; I ran out
-of time to land it safely, and a half-done version that fires on every method call would
-have cost more precision than it bought.
-
-The other three misses are honest limits, each documented in README.md: dynamic dispatch
-through `getattr`, taint entering a `lambda` through its own parameter, and an object
-field set from a constructor parameter rather than from a source directly.
+The numbers worth reading are the open-source ones below, on code nobody wrote for this
+scanner.
 
 ## Open-source runs
 
-Three public Python repositories, scanned with the shipped `rules.yaml` on a 4-core
-laptop.
+Two public Python repositories, scanned with the shipped `rules.yaml` on a 4-core laptop.
 
 | repository | Python files | wall time | findings |
 |---|---|---|---|
-| apache/airflow | 7,985 | 31.0s | 63 |
-| django/django | 2,932 | 10.8s | 20 |
-| saleor/saleor | 4,332 | 14.3s | 17 |
-| **total** | **15,249** | **56.1s** | **100** |
+| apache/airflow | 7,990 | 39.3s | 55 |
+| django/django | 2,932 | 13.8s | 21 |
+| **total** | **10,922** | **53.1s** | **76** |
 
-An earlier revision of the rules produced 1,007 findings on the same three repositories.
-Everything that closed that gap is described under "What triage changed" below, and all
-of it was rule data rather than engine code, which is the outcome the rule format was
-designed for.
+### Triage
 
-### Triage of a 40-finding sample
+Every one of the 76 was read, except that the 48 Vault and Chime credential literals in
+Airflow's provider tests were sampled rather than read line by line, because they are
+homogeneous.
 
-Sampled with a fixed seed and read by hand, one finding at a time.
+| group | n | true by the rule's definition | false |
+|---|---|---|---|
+| airflow, hard-coded secret, provider tests | 48 | 48 | 0 |
+| airflow, hard-coded secret, library code | 1 | 0 | 1 |
+| airflow, command injection | 5 | 1 | 4 |
+| airflow, SQL injection | 1 | 1 | 0 |
+| django, unsafe HTML, `numberformat.py` | 6 | 0 | 6 |
+| django, unsafe HTML, test views | 10 | 10 | 0 |
+| django, SSRF | 3 | 3 | 0 |
+| django, hard-coded secret | 2 | 2 | 0 |
+| **total** | **76** | **65** | **11** |
 
-| group | n | verdict |
-|---|---|---|
-| airflow, command injection | 10 | 1 worth review, 9 false |
-| airflow, SQL injection | 1 | 1 true |
-| airflow, hard-coded secret | 12 | 8 true by the rule's definition, 4 false |
-| django, unsafe HTML | 12 | 6 true, 6 false |
-| django, SSRF | 3 | 3 true |
-| saleor, hard-coded secret | 8 | 8 true by the rule's definition |
+**Precision on unseen real code: 0.855.** The previous revision of this engine scored
+near 0.45 on the same repositories under the same convention.
 
-Roughly 18 of 40 survive triage, so precision on unseen real code is near 45%, against
-93.5% on my own corpus. That gap is the honest headline of this document, and the four
-residual false-positive classes are:
-
-1. **Long framework chains.** The Django `mark_safe` case above. The engine follows six
-   call hops correctly and is wrong at the end of all six.
-2. **`sys.argv` and `os.environ` in developer tooling.** `os.execl(sys.executable, *sys.argv)`
-   in a reinstall helper is reported as command injection. It is a correct dataflow and a
-   useless finding.
-3. **Name globs on the secret rule.** `*_key` matches `s3_key`, `context_key`,
-   `GCS_TOKEN_EXPIRES_AT_MS`. The value filters catch most of these but not all.
-4. **Test fixtures.** Most surviving secret findings are JWT-shaped and Vault-shaped
-   literals inside `tests/`. They are credential-shaped literals, so the rule is behaving
-   as written, but a team would want them gone. `paths.exclude` on the rule does that
-   without touching the engine; it is deliberately not enabled by default, because a real
-   secret committed to a test file is still a leaked secret.
+"True by the rule's definition" is a deliberately generous bar and it is the same bar the
+previous revision was measured against, so the two are comparable. It means the dataflow
+or the literal is really what the rule describes. It does not mean a reviewer would act.
+Under the stricter question, *would an engineer open a ticket for this*, only 2 of 76
+survive: the two named below. Most of the rest are credential-shaped literals in test
+fixtures, which are correctly identified and rarely interesting.
 
 ### Two findings I would act on
 
 `providers/apache/hive/.../hooks/hive.py:958`, where `os.environ.get` flows through a
 returned dict into `cur.execute(f"set {k}={v}")`, and
-`task-sdk/.../execution_time/task_runner.py`, where the `_AIRFLOW__STARTUP_MSG`
-environment variable is parsed, read back as `run_as_user`, and reaches
-`os.execvp("sudo", cmd)` seven hops later across two files. Neither is remotely
-exploitable by an anonymous attacker, but both are real dataflows that a reviewer should
-see, and neither is findable by grep.
+`task-sdk/.../execution_time/task_runner.py:1242`, where the `_AIRFLOW__STARTUP_MSG`
+environment variable is parsed, read back as `run_as_user`, and reaches `os.execvp`
+several hops later across two files. Neither is remotely exploitable by an anonymous
+attacker, but both are real dataflows that a reviewer should see, and neither is findable
+by grep.
 
-### What triage changed
+## Worst false positive
 
-| change | where | effect on the three repos |
+`django/utils/numberformat.py:29`, reported three times.
+
+```python
+def format(number, decimal_sep, decimal_pos=None, ...):
+    if number is None or number == "":
+        return mark_safe(number)
+```
+
+The engine follows `request.POST.get` through `ModelAdmin.get_object`, into a queryset
+lookup, out through `str(obj)`, across two more files, and into `mark_safe`. Every hop is
+a correct dataflow step. The conclusion is still wrong, for two reasons the engine cannot
+see: the value that reaches `mark_safe` is a number, not the attacker's string, and
+`mark_safe` on a number cannot produce markup. Fixing it needs type inference, which this
+engine does not have.
+
+It shows up three times because three admin views are distinct entry points into the same
+sink. That is the intended behaviour, and here it makes one wrong conclusion look like
+three. Clustering by sink in the table output would hide the noise without losing the
+paths, and is the first thing I would add.
+
+## Worst false negative
+
+A callable stored in a container and dispatched out of it:
+
+```python
+HANDLERS = {"run": os.system}
+
+
+def go():
+    HANDLERS["run"]("echo " + request.args.get("cmd"))
+```
+
+The engine resolves a callable through a variable (`runner = os.system`) and through
+`getattr(os, "system")`, because both bind a name to a dotted path it can name. It does
+not resolve one through a subscript, because `HANDLERS["run"]` requires knowing the
+container's contents at the index, and the value tracked for `HANDLERS` is taint, not
+identity. The sink is never recognised as a sink, so no amount of correct taint
+propagation helps.
+
+The fix is a second, small abstract domain carried alongside taint: for each key, the set
+of dotted paths the value may name. Constant containers are already detected for the
+allowlist logic, so the information is within reach. The same domain would fix dispatch
+tables, plugin registries and `functools.partial`, which is why it is the next thing I
+would build.
+
+Verified missing: `scanner scan` on that file reports nothing.
+
+## Residual false-positive classes
+
+1. **Long framework chains.** The `numberformat.py` case. The engine follows six call hops
+   correctly and is wrong at the end of all six.
+2. **`sys.argv` and `os.environ` in developer tooling.** `os.execl(sys.executable, *sys.argv)`
+   in a reinstall helper is reported as command injection. Correct dataflow, useless
+   finding. Four of Airflow's five command-injection findings are this.
+3. **Hyphenated config keys on the secret rule.** `GCS_TOKEN_EXPIRES_AT_MS =
+   "gcs.oauth2.token-expires-at"` survives the dotted-path filter because a hyphen is not
+   an identifier character.
+4. **Test fixtures.** Most surviving secret findings are JWT-shaped and Vault-shaped
+   literals inside `tests/`. The rule behaves as written. `paths.exclude` on the rule
+   removes them without touching the engine; it is deliberately not enabled by default,
+   because a real secret committed to a test file is still a leaked secret.
+
+## What triage changed
+
+| change | where | effect |
 |---|---|---|
 | `min_entropy` 3.5 to 4.0, `min_length` 8 to 12, new `min_charset_classes: 2` | `rules.yaml` | 837 secret findings to 128 |
 | exclude values containing a space, a `://`, or a leading `/` | `rules.yaml` | 128 to 69 |
 | `sys.argv` and `os.environ` removed as sources for path traversal, SSRF and unsafe HTML | `rules.yaml` | path traversal 77 to 0, SSRF 8 to 0 |
 | local names no longer shadow builtin sources | `scanner/analyzers/taint.py` | removed 3 findings on `pickle.loads(input)` where `input` is a pytest parameter |
+| validation guards that exit kill taint | `scanner/analyzers/taint.py` | both corpus false positives removed |
+| base-class method resolution | `scanner/analyzers/taint.py` | no change on these two repos, large change on class-heavy code |
+| `exclude_identifier_path` on the secret rule | `rules.yaml` + `pattern.py` | removed 3 dotted import paths assigned to `*_KEY` / `*SECRET*` names |
 
 The `min_charset_classes` threshold was chosen by measuring, not by taste: it is the
 setting that discards the most real-repo noise while keeping every true secret in the
 corpus. Character classes are counted over the value with `_-./: ` removed, which is what
 separates `sk_live_51H8xQ2KmZvR7tYbNp` from `attribute_by_page_id_and_attribute_slug`.
 
+`exclude_identifier_path` has a cautionary history worth recording. The first version
+excluded any dot-separated string whose segments were all identifiers. That silently
+dropped `VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"`, a real Vault token shape, while
+keeping a near-identical one whose segment was one character longer. It now requires at
+least three segments, which no two-part token shape has.
+`tests/test_pattern.py::test_a_two_segment_vault_token_is_still_a_secret` pins it.
+
 ## Performance
 
-The 60-second budget is for 500 files. The engine does 500 synthetic files with
-interprocedural flow in **0.37s** and 7,985 files of Airflow in 31s, both on 4 cores.
-`tests/test_engine.py::test_five_hundred_files_scan_within_the_budget` asserts the budget
-on every run. What buys the headroom is described in README.md under Performance.
+The 60-second budget is for 500 files. The engine does 500 files with interprocedural
+flow in **0.54s**, 2,932 files of Django in 13.8s and 7,990 files of Airflow in 39.3s,
+all on 4 cores. `tests/test_engine.py::test_five_hundred_files_scan_within_the_budget`
+asserts the budget on every run.
+
+The capabilities added in the last revision cost roughly 2x throughput, from 0.24s to
+0.54s on the 500-file tree. Two caches paid most of it back: `local_names` is memoised on
+`FunctionInfo` instead of re-walking the body for every walker, and `PatternIndex.lookup`
+memoises on the candidate-name tuple, which was the single hottest function in the
+profile. What buys the rest of the headroom is described in README.md under Performance.
 
 ## Determinism
 

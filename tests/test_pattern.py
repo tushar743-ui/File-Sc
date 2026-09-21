@@ -35,3 +35,25 @@ def test_hardcoded_secret_is_flagged(run_scan, shipped_rules, name):
 @pytest.mark.parametrize("name", sorted(CLEAN))
 def test_safe_looking_value_is_not_flagged(run_scan, shipped_rules, name):
     assert run_scan({"conf.py": CLEAN[name]}, shipped_rules) == [], name
+
+
+def test_dotted_import_path_is_not_a_secret(run_scan, shipped_rules):
+    source = 'SECRETS_BACKEND = "myapp.secrets.local_filesystem.LocalFilesystemBackend"\n'
+    assert run_scan({"settings.py": source}, shipped_rules) == []
+
+
+def test_a_dotted_jwt_is_still_a_secret(run_scan, shipped_rules):
+    value = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ."
+        "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    )
+    source = f'API_TOKEN = "{value}"\n'
+    findings = run_scan({"settings.py": source}, shipped_rules)
+    assert [f.rule_id for f in findings] == ["py.hardcoded-secret"]
+
+
+def test_a_two_segment_vault_token_is_still_a_secret(run_scan, shipped_rules):
+    source = 'VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"\n'
+    findings = run_scan({"settings.py": source}, shipped_rules)
+    assert [f.rule_id for f in findings] == ["py.hardcoded-secret"]

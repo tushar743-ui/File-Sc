@@ -22,6 +22,15 @@ def shannon_entropy(value: str) -> float:
     )
 
 
+def is_identifier_path(value: str) -> bool:
+    if len(value) > 80:
+        return False
+    parts = value.split(".")
+    if len(parts) < 3:
+        return False
+    return all(part.isidentifier() and len(part) <= 24 for part in parts)
+
+
 def charset_classes(value: str) -> int:
     core = [character for character in value if character not in SEPARATORS]
     return sum(
@@ -46,6 +55,7 @@ class _Matcher:
         self.min_length = int(spec.get("min_length", 0))
         self.min_classes = int(spec.get("min_charset_classes", 0))
         self.exclude = [str(p) for p in spec.get("exclude", [])]
+        self.exclude_identifier_path = bool(spec.get("exclude_identifier_path", False))
 
     def name_matches(self, name: str) -> bool:
         if not self.assigned_to:
@@ -65,6 +75,8 @@ class _Matcher:
         if len(value) < self.min_length:
             return None
         if any(match_glob(pattern, value) for pattern in self.exclude):
+            return None
+        if self.exclude_identifier_path and is_identifier_path(value):
             return None
         if self.min_classes and charset_classes(value) < self.min_classes:
             return None

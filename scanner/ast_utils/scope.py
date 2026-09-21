@@ -16,6 +16,7 @@ class FunctionInfo:
     params: tuple[str, ...]
     owner: str = ""
     is_method: bool = False
+    bound: frozenset[str] | None = field(default=None, compare=False)
 
     def param_index(self, name: str) -> int:
         return self.params.index(name) if name in self.params else -1

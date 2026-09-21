@@ -69,17 +69,21 @@ def parse_pattern_specs(entries: Any, owner: str, payload: Any = None) -> list[P
 
 _GLOB_CHARS = ("*", "?", "[")
 
+CACHE_LIMIT = 100_000
+
 
 class PatternIndex:
     def __init__(self, specs: list[PatternSpec] | None = None) -> None:
         self._exact: dict[str, list[PatternSpec]] = {}
         self._wild: list[PatternSpec] = []
         self._empty = True
+        self._cache: dict[tuple[str, ...], list[PatternSpec]] = {}
         for spec in specs or []:
             self.add(spec)
 
     def add(self, spec: PatternSpec) -> None:
         self._empty = False
+        self._cache.clear()
         last = spec.pattern.rsplit(".", 1)[-1]
         if any(ch in last for ch in _GLOB_CHARS):
             self._wild.append(spec)
@@ -92,15 +96,19 @@ class PatternIndex:
     def lookup(self, names: tuple[str, ...]) -> list[PatternSpec]:
         if self._empty:
             return []
+        cached = self._cache.get(names)
+        if cached is not None:
+            return cached
         hits: list[PatternSpec] = []
+        seen: set[int] = set()
         for name in names:
             last = name.rsplit(".", 1)[-1]
-            for spec in self._exact.get(last, ()):
-                if spec not in hits and match_dotted(spec.pattern, name):
+            for spec in (*self._exact.get(last, ()), *self._wild):
+                if id(spec) not in seen and match_dotted(spec.pattern, name):
+                    seen.add(id(spec))
                     hits.append(spec)
-            for spec in self._wild:
-                if spec not in hits and match_dotted(spec.pattern, name):
-                    hits.append(spec)
+        if len(self._cache) < CACHE_LIMIT:
+            self._cache[names] = hits
         return hits
 
     def matches(self, names: tuple[str, ...]) -> bool:
