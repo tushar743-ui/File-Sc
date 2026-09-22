@@ -27,6 +27,7 @@ make sarif TARGET=./your/repo           # results.sarif
 make bench                              # score against corpus/labels.json
 make verify-sarif                       # validate SARIF against the published schema
 make baseline TARGET=./your/repo        # write .scanner-baseline.json
+make demo                               # scan demo_vulnerable.py, one file, every rule
 make clean
 ```
 
@@ -55,7 +56,63 @@ scanner bench ./corpus --rules rules.yaml --labels corpus/labels.json
 
 `--fail-on` exits 1 when a finding at or above that severity survives. Without it the
 exit code is 0 unless the scan itself failed, which exits 2. Other flags: `--jobs`,
-`--exclude DIR` (repeatable), `--root`, `-o/--output`.
+`--exclude DIR` (repeatable), `--root`, `--quiet`, `-o/--output`.
+
+## Scanning a large open-source repository
+
+One command clones a repository and scans it:
+
+```bash
+make scan-repo REPO=getsentry/sentry                 # GitHub org/name shorthand
+make scan-repo REPO=https://github.com/psf/requests  # or a full git URL
+make scan-repo REPO=/path/to/checkout                # or a local checkout
+make scan-repo REPO=django/django FMT=sarif          # table (default), summary, or sarif
+```
+
+Clones land in `.repos/`, shallow, and are reused on the next run. `.repos/` is
+gitignored and `make clean` leaves it alone.
+
+For repositories in the thousands of files, `--format summary` is the format to use.
+The full `table` format prints every hop of every taint path, which on a repository the
+size of Sentry is several thousand lines. `summary` prints counts by rule, by severity
+and by file, then one line per finding, and ends with a total:
+
+A finding is one route; a sink is one dangerous line. Three entry points reaching the
+same line are three findings and one sink. `summary` clusters by sink and marks the
+count, so the footer reports both:
+
+```
+BY RULE
+  py.hardcoded-secret  69
+  py.unsafe-html       10
+  py.path-traversal     2
+  py.ssrf               2
+
+BY SEVERITY
+  high  83
+
+BY FILE
+  tests/sentry/backup/test_comparators.py  27
+  ...
+HIGH  py.unsafe-html  src/sentry/web/helpers.py:42:16  (23 hops)  x6 entry points
+...
+76 sink(s) in 26 file(s), 83 finding(s) counting entry points
+```
+
+The SARIF keeps every route as its own result with its own `codeFlows`, because whoever
+fixes the line wants all of them.
+
+Progress goes to stderr as `scanner: 4250/8246 files  38.1s`, so a long scan is never a
+silent one, and it stays out of the way when you redirect stdout to a file. `--quiet`
+turns it off for CI.
+
+Two properties matter at this size. Memory is bounded: the cross-file module cache is an
+LRU of `MODULE_CACHE_SIZE` parsed modules per worker, so peak resident memory is flat in
+repository size rather than linear in it. Scanning Sentry, 8,246 files and 333 MB, peaks
+at about 1.2 GB across eight workers and holds there; before the cache was bounded the
+same scan passed 4.5 GB and was still climbing when it finished. Files above
+`MAX_FILE_BYTES` (2 MB) are skipped rather than parsed, and a file that fails to parse is
+skipped rather than failing the run, so one vendored minified blob does not stop a scan.
 
 ## Architecture
 
@@ -117,8 +174,12 @@ rules:
 ```
 
 Patterns are dotted paths where `*` matches exactly one segment. `arg` selects the
-dangerous argument by index, or `any` for all of them including keywords; omitting it
-means `any`. `when` gates a sink on a keyword argument, with `equals` for a literal value
+dangerous argument by index, or `any` for all of them including keywords, or `receiver`
+for the object a method is called on; omitting it means `any`. `receiver` exists because
+some sinks take no arguments at all: in `Path(root + name).read_text()` the tainted value
+is the `Path`, not an argument. It is opt-in, never folded into `any`, because a tainted
+receiver is usually harmless: a Django `queryset` carrying a parameterized filter is
+tainted and `queryset.extra(select=literals)` is not an injection. `when` gates a sink on a keyword argument, with `equals` for a literal value
 or `absent: true` for a missing one, which is how `yaml.load` is dangerous only without a
 `Loader`. Any rule may carry `paths: {include: [...], exclude: [...]}` to scope it to part
 of the tree; that is handled by the engine and works for every kind.
@@ -265,9 +326,9 @@ modes are in DECISIONS.md.
 
 ## Performance
 
-7,990 files of Apache Airflow in 39 seconds; 2,932 files of Django in 14 seconds; 500
-files with interprocedural flow in 0.54 seconds, asserted on every test run against a
-60-second budget. What buys it: each file is parsed once
+8,163 files of Sentry in 51 to 75 seconds; 7,995 files of Apache Airflow in 30 to 47
+seconds; 2,932 files of Django in 10 to 14 seconds; 500 files with interprocedural flow in 0.24 to 0.39
+seconds, asserted on every test run against a 60-second budget. What buys it: each file is parsed once
 and walked once for every taint rule rather than once per rule; sink, source and sanitizer
 patterns are indexed by their last dotted segment so a call site tests only the handful of
 patterns that could match; dotted-name splitting and glob matching are memoised; function
@@ -275,24 +336,53 @@ summaries are computed on demand and cached per process, keyed by the call-site 
 bindings so the cache stays correct without recomputation; `local_names` is memoised on
 the function it describes instead of re-walking the body per analysis; pattern lookups are
 memoised on the candidate-name tuple, which the profiler named as the hottest function; the second, sticky-state pass
-runs only for modules that actually write to a field or global; files are distributed
-across a process pool with `Pool.map`, which preserves order. Output is sorted and
-serialized with sorted keys, so serial and parallel runs are byte-identical.
+runs only for modules that actually write to a field or global; imports and module-level
+constants are collected in a single `ast.walk` rather than one each, which was 20% of the
+time on a large repository; files are distributed across a process pool with `Pool.imap`,
+which preserves order while letting progress be reported as results arrive. Output is
+sorted and serialized with sorted keys, so serial and parallel runs are byte-identical.
+
+The cross-file module cache is the one thing that has to be bounded rather than made
+fast. Resolving a call into another file parses that file, and on a large repository the
+set of files reachable by import from somewhere is effectively the whole repository, so
+an unbounded cache is a slow memory leak. It is an LRU, `MODULE_CACHE_SIZE` entries per
+worker; smaller trades wall time for memory and larger trades it back. 512 was chosen by
+measuring Sentry at both ends: 128 entries costs about 20% wall time for a 750 MB ceiling,
+unbounded is 4.5 GB and rising.
 
 ## What I know is broken
 
 - The corpus now scores 1.000 on both axes, which means it has stopped being a
   measurement and is only a regression suite. Read the open-source numbers in
   BENCHMARK.md instead.
-- Real-repo precision is 0.855 under a generous definition of correct, and roughly 0.03
-  under "would an engineer open a ticket". Most surviving findings are credential-shaped
-  literals in test fixtures. BENCHMARK.md names the four residual false-positive classes.
+- Real-repo precision is 0.815 per finding and 0.880 per sink across five repositories
+  under a generous definition of correct, and roughly 0.01 under "would an engineer open
+  a ticket". Most surviving findings are credential-shaped literals in test fixtures.
+  BENCHMARK.md names the residual false-positive classes.
+- Autoescaped template output is the largest false-positive class.
+  `HttpResponse(render_to_string(...))` is reported, because the engine cannot see that
+  the template engine escaped the value. It cannot follow a sanitizer passed as a
+  function either, so `map(conditional_escape, args)` does not kill taint.
+- Strings carry no constant-prefix information, so
+  `requests.get(f"https://fixed-host.example/{tainted}")` is reported as SSRF even though
+  the host cannot be steered. This is the most common real-repo false positive after test
+  credentials and is the first thing I would fix.
+- The module cache is bounded per worker, not shared between them. Eight workers each
+  parse the same popular module rather than parsing it once, so peak memory is eight
+  caches wide. A shared read-only store would cut it, at the cost of the fork-and-forget
+  simplicity the pool has now.
+- A repository is scanned as one module index rooted at the scan target. A monorepo with
+  several independent packages that shadow each other's module names will resolve some
+  cross-file calls to the wrong file; `--root` moves the root but cannot split it.
 - Path-sensitivity is a heuristic, not an analysis. A guard kills taint only when one
   branch of the `if` always exits and the predicate is either on a fixed list of
   validating methods or declared under the rule's `guards:` key. A project's own validator
   is invisible until someone lists it. Validation that does not exit, such as
   `x = x if valid(x) else ""`, is not recognised at all.
 - Container fields are not distinguished. `d["safe"]` is tainted once `d["bad"]` is.
+- A sink guarded by `when: {kwarg: ..., equals: ...}` is silent when the keyword is passed
+  a variable rather than a literal. `HttpResponse(body, content_type=ct)` is never
+  reported even if `ct` can be `text/html`. Deliberate, on the precision side.
 - Callables held in containers are invisible. `HANDLERS["run"](cmd)` is never a sink.
 - Base-class resolution stops at the first base that defines the name rather than
   computing the real MRO, so diamond inheritance can resolve to the wrong body.

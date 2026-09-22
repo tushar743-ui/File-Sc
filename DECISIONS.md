@@ -70,13 +70,13 @@ Recall inside the engine, precision inside the rules.
 
 The engine over-approximates: an unknown call returns tainted if any argument or the
 receiver is tainted, and taint on either branch taints the merge. That is the only way to
-survive code calling libraries the analyser has never heard of, which is all real code.
+survive code calling libraries the analyser has never heard of.
 
-Precision is bought back in rule data, because rule data is the part a user can change
-without reading my source. Sinks carry an argument index, so a parameterized query is
-silent. Sinks carry a `when` guard, so `subprocess.run` is dangerous with `shell=True` and
-quiet without it. When triage showed `sys.argv` and `os.environ` producing all of the path
-traversal and SSRF noise, the fix was deleting two lines of YAML.
+Precision is bought back in rule data, the part a user can change without reading my
+source. Sinks carry an argument index, so a parameterized query is silent, and a `when`
+guard, so `subprocess.run` is dangerous with `shell=True` and quiet without it. When
+triage showed `sys.argv` and `os.environ` producing all of the path traversal and SSRF
+noise, the fix was deleting two lines of YAML.
 
 Two exceptions where I spent engine code on precision. Provably-constant containers, since
 treating `ALLOWED.get(user_input)` as tainted poisons an entire class of correct programs.
@@ -85,7 +85,14 @@ rule edit could reach: the thing to suppress is a shape in the user's code, not 
 could list.
 
 I would rather miss a dispatch table than report Django's number formatter. Real-repo
-precision is 0.855, and the thing it still reports is Django's number formatter.
+precision is 0.815 per finding and 0.880 per sink, and the thing it still reports is
+Django's number formatter.
+
+That side was tested this revision. A summary bug dropped every flow into a sink argument
+but the first, missing an interprocedural injection whenever the tainted argument was not
+the first to appear. Fixing it cost four false positives, all autoescaped template output.
+I took the recall: a rule cannot recover a flow the engine never recorded, whereas a
+false-positive class is a rule edit away.
 
 ## The rule I most wanted to write and could not
 
@@ -123,16 +130,16 @@ field-sensitivity.
 
 **A value filter that silently deleted real secrets.** To kill a false-positive class
 where a dotted import path is assigned to a `*_KEY` name, it added `exclude_identifier_path`:
-drop any dot-separated value whose segments are all identifiers. It worked on the four
+drop any dot-separated value whose segments are all identifiers. It hit the four
 targets and also dropped `VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"`, a real Vault token
 shape, while keeping a near-identical literal one character longer. Caught by diffing the
-Airflow findings before and after, not by the corpus, which scored 1.000 throughout. It
-now requires three segments, which no two-part token has, pinned by a test. A filter added
-to remove noise has to be measured against what it removes, not only what it was aimed at.
+Airflow findings, not by the corpus, which scored 1.000 throughout. It now requires three
+segments, pinned by a test. A filter added to remove noise has to be measured against what
+it removes, not only what it was aimed at.
 
 **A rule key that was dead on arrival.** The `guards:` key was implemented, documented and
 shipped, and never worked for the case anyone would write: the lookup sat inside an
 `isinstance(func, ast.Attribute)` branch, so `HOSTNAME.fullmatch(host)` reached it and
 `is_clean_host(host)` did not. Every test had used a method. Caught by running the example
-from my own README. There is now a test asserting the same YAML with and without the key
-gives a finding and no finding.
+from my own README. A test now asserts the same YAML with and without the key gives a
+finding and no finding.

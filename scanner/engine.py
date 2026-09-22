@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import multiprocessing
 import os
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +25,8 @@ DEFAULT_EXCLUDES = (
 )
 
 MAX_FILE_BYTES = 2_000_000
+MODULE_CACHE_SIZE = 512
+PROGRESS_EVERY = 250
 
 
 def discover(target: Path, excludes: tuple[str, ...]) -> list[str]:
@@ -57,11 +60,11 @@ class ScanContext:
     def __init__(self, root: Path, index: dict[str, str]) -> None:
         self.root = str(root)
         self.index = index
-        self._cache: dict[str, ModuleInfo | None] = {}
+        self._cache: OrderedDict[str, ModuleInfo | None] = OrderedDict()
 
     def __getstate__(self) -> dict:
         state = dict(self.__dict__)
-        state["_cache"] = {}
+        state["_cache"] = OrderedDict()
         return state
 
     def relative(self, path: str) -> str:
@@ -72,6 +75,7 @@ class ScanContext:
 
     def load(self, path: str) -> ModuleInfo | None:
         if path in self._cache:
+            self._cache.move_to_end(path)
             return self._cache[path]
         module = None
         try:
@@ -86,6 +90,8 @@ class ScanContext:
         except (OSError, SyntaxError, ValueError, RecursionError):
             module = None
         self._cache[path] = module
+        while len(self._cache) > MODULE_CACHE_SIZE:
+            self._cache.popitem(last=False)
         return module
 
     def resolve_external(self, module: ModuleInfo, node: ast.Call):
@@ -212,10 +218,12 @@ def dedupe(findings: list[Finding]) -> list[Finding]:
     return out
 
 
-def scan(config: ScanConfig) -> list[Finding]:
+def scan(config: ScanConfig, progress=None) -> list[Finding]:
     target = config.target.resolve()
     root = (config.root or (target if target.is_dir() else target.parent)).resolve()
     files = discover(target, config.excludes)
+    if progress is not None:
+        progress(0, len(files))
     if not files:
         return []
     context = ScanContext(root, build_module_index(root, files))
@@ -225,12 +233,21 @@ def scan(config: ScanConfig) -> list[Finding]:
         with multiprocessing.get_context("fork").Pool(
             processes=jobs, initializer=_worker_init, initargs=(config.rules, context)
         ) as pool:
-            batches = pool.map(_scan_one, files, chunksize=8)
+            batches = _drain(pool.imap(_scan_one, files, chunksize=8), len(files), progress)
     else:
         _worker_init(config.rules, context)
-        batches = [_scan_one(path) for path in files]
+        batches = _drain((_scan_one(path) for path in files), len(files), progress)
 
     findings: list[Finding] = []
     for batch in batches:
         findings.extend(batch)
     return dedupe(sort_findings(findings))
+
+
+def _drain(results, total: int, progress) -> list[list[Finding]]:
+    batches = []
+    for batch in results:
+        batches.append(batch)
+        if progress is not None and (len(batches) % PROGRESS_EVERY == 0 or len(batches) == total):
+            progress(len(batches), total)
+    return batches

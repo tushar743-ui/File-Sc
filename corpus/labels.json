@@ -52,6 +52,9 @@
     "safe/html_bleach.py": {
       "expected": []
     },
+    "safe/html_django_json_response.py": {
+      "expected": []
+    },
     "safe/html_escaped.py": {
       "expected": []
     },
@@ -62,6 +65,9 @@
       "expected": []
     },
     "safe/path_fixed_index.py": {
+      "expected": []
+    },
+    "safe/path_pathlib_basename.py": {
       "expected": []
     },
     "safe/path_secure_filename.py": {
@@ -89,6 +95,9 @@
       "expected": []
     },
     "safe/sql_int_coerced.py": {
+      "expected": []
+    },
+    "safe/sql_multi_param_constant.py": {
       "expected": []
     },
     "safe/sql_named_params.py": {
@@ -141,6 +150,14 @@
         }
       ]
     },
+    "vulnerable/cmd_header_subscript.py": {
+      "expected": [
+        {
+          "line": 7,
+          "rule": "py.command-injection"
+        }
+      ]
+    },
     "vulnerable/cmd_os_system.py": {
       "expected": [
         {
@@ -185,6 +202,14 @@
       "expected": [
         {
           "line": 10,
+          "rule": "py.insecure-deserialization"
+        }
+      ]
+    },
+    "vulnerable/deser_pickle_get_data.py": {
+      "expected": [
+        {
+          "line": 7,
           "rule": "py.insecure-deserialization"
         }
       ]
@@ -256,6 +281,22 @@
     "vulnerable/hard_three_hop.py": {
       "expected": []
     },
+    "vulnerable/html_django_response.py": {
+      "expected": [
+        {
+          "line": 6,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
+    "vulnerable/html_make_response.py": {
+      "expected": [
+        {
+          "line": 5,
+          "rule": "py.unsafe-html"
+        }
+      ]
+    },
     "vulnerable/html_mark_safe.py": {
       "expected": [
         {
@@ -300,6 +341,14 @@
       "expected": [
         {
           "line": 6,
+          "rule": "py.path-traversal"
+        }
+      ]
+    },
+    "vulnerable/path_pathlib_read.py": {
+      "expected": [
+        {
+          "line": 9,
           "rule": "py.path-traversal"
         }
       ]
@@ -364,6 +413,14 @@
       "expected": [
         {
           "line": 9,
+          "rule": "py.sql-injection"
+        }
+      ]
+    },
+    "vulnerable/sql_multi_param_helper.py": {
+      "expected": [
+        {
+          "line": 5,
           "rule": "py.sql-injection"
         }
       ]

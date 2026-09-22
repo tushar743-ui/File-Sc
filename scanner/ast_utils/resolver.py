@@ -58,24 +58,25 @@ class Resolver:
         self.origins: dict[str, tuple[str, str]] = {}
         self.local_defs: set[str] = set()
         self.constants: frozenset[str] = frozenset()
-        self._collect_imports(tree)
+        self._collect(tree)
         self._collect_local_defs(tree)
         self._collect_module_aliases(tree)
-        self._collect_constants(tree)
 
-    def _collect_constants(self, tree: ast.Module) -> None:
+    def _collect(self, tree: ast.Module) -> None:
         declared: set[str] = set()
         for node in tree.body:
             if isinstance(node, ast.Assign) and len(node.targets) == 1:
                 target = node.targets[0]
                 if isinstance(target, ast.Name) and is_constant_container(node.value):
                     declared.add(target.id)
-        if not declared:
-            return
         stores: dict[str, int] = {}
         mutated: set[str] = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                self._record_import(node)
+            elif not declared:
+                continue
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
                 stores[node.id] = stores.get(node.id, 0) + 1
             elif isinstance(node, (ast.Attribute, ast.Subscript)):
                 if isinstance(node.ctx, (ast.Store, ast.Del)):
@@ -103,30 +104,29 @@ class Resolver:
                 if node.name not in self.aliases:
                     self.local_defs.add(node.name)
 
-    def _collect_imports(self, tree: ast.Module) -> None:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.asname:
-                        self.aliases[alias.asname] = alias.name
-                        self.origins[alias.asname] = (alias.name, "")
-                    else:
-                        root = alias.name.split(".")[0]
-                        self.aliases.setdefault(root, root)
-                        self.origins.setdefault(root, (root, ""))
-            elif isinstance(node, ast.ImportFrom):
-                base = (
-                    relative_base(self.package, node.level, node.module)
-                    if node.level
-                    else (node.module or "")
-                )
-                for alias in node.names:
-                    if alias.name == "*":
-                        continue
-                    local = alias.asname or alias.name
-                    full = f"{base}.{alias.name}" if base else alias.name
-                    self.aliases[local] = full
-                    self.origins[local] = (base, alias.name)
+    def _record_import(self, node: ast.AST) -> None:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    self.aliases[alias.asname] = alias.name
+                    self.origins[alias.asname] = (alias.name, "")
+                else:
+                    root = alias.name.split(".")[0]
+                    self.aliases.setdefault(root, root)
+                    self.origins.setdefault(root, (root, ""))
+            return
+        base = (
+            relative_base(self.package, node.level, node.module)
+            if node.level
+            else (node.module or "")
+        )
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            local = alias.asname or alias.name
+            full = f"{base}.{alias.name}" if base else alias.name
+            self.aliases[local] = full
+            self.origins[local] = (base, alias.name)
 
     def _collect_module_aliases(self, tree: ast.Module) -> None:
         for node in tree.body:

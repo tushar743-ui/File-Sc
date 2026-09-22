@@ -52,3 +52,7 @@ Thumbs.db
 .install-stamp
 .node_modules/
 notes.md
+.repos/
+demo.sarif
+results.sarif
+.scanner-baseline.json

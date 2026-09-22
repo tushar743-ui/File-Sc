@@ -61,8 +61,10 @@ def parse_pattern_specs(entries: Any, owner: str, payload: Any = None) -> list[P
         if not isinstance(entry, dict) or "pattern" not in entry:
             raise RuleError(f"rule '{owner}': pattern entry needs a 'pattern' field")
         arg = entry.get("arg")
-        if arg is not None and arg != "any" and not isinstance(arg, int):
-            raise RuleError(f"rule '{owner}': 'arg' must be an integer or 'any'")
+        if arg is not None and arg not in ("any", "receiver") and not isinstance(arg, int):
+            raise RuleError(
+                f"rule '{owner}': 'arg' must be an integer, 'any' or 'receiver'"
+            )
         specs.append(PatternSpec(str(entry["pattern"]), arg, payload))
     return specs
 

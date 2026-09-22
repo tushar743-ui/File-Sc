@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from .analyzers.base import SEVERITY_ORDER, meets_threshold
@@ -28,6 +29,7 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--jobs", type=int, default=0, help="worker processes (0 = auto)")
     parser.add_argument("--root", type=Path, default=None, help="project root for relative paths")
+    parser.add_argument("--quiet", action="store_true", help="suppress progress on stderr")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,7 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan_parser = sub.add_parser("scan", help="analyze a codebase and report findings")
     _add_common(scan_parser)
-    scan_parser.add_argument("--format", choices=("table", "sarif"), default="table")
+    scan_parser.add_argument(
+        "--format", choices=("table", "summary", "sarif"), default="table"
+    )
     scan_parser.add_argument("--fail-on", choices=tuple(SEVERITY_ORDER), default=None)
     scan_parser.add_argument("--baseline", type=Path, default=None, help="report only new findings")
     scan_parser.add_argument("-o", "--output", type=Path, default=None)
@@ -54,12 +58,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _progress(started: float):
+    def report(done: int, total: int) -> None:
+        if done == 0:
+            sys.stderr.write(f"scanner: {total} python file(s) to scan\n")
+            return
+        elapsed = time.monotonic() - started
+        end = "\n" if done == total else "\r"
+        sys.stderr.write(f"scanner: {done}/{total} files  {elapsed:.1f}s{end}")
+        sys.stderr.flush()
+
+    return report
+
+
 def _run_scan(args) -> tuple[list, Path, list]:
     rules = load_rules(args.rules)
     excludes = DEFAULT_EXCLUDES + tuple(args.exclude)
     target = args.target.resolve()
     root = (args.root or (target if target.is_dir() else target.parent)).resolve()
-    findings = scan(ScanConfig(target=target, rules=rules, excludes=excludes, jobs=args.jobs, root=root))
+    started = time.monotonic()
+    findings = scan(
+        ScanConfig(target=target, rules=rules, excludes=excludes, jobs=args.jobs, root=root),
+        progress=None if args.quiet else _progress(started),
+    )
+    if not args.quiet:
+        elapsed = time.monotonic() - started
+        sys.stderr.write(f"scanner: {len(findings)} finding(s) in {elapsed:.1f}s\n")
     return findings, root, rules
 
 
@@ -79,6 +103,8 @@ def command_scan(args) -> int:
 
     if args.format == "sarif":
         _write(sarif_output.render(findings, rules, str(root)), args.output)
+    elif args.format == "summary":
+        _write(table_output.render_summary(findings, sys.stdout), args.output)
     else:
         _write(table_output.render(findings, sys.stdout), args.output)
 

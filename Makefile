@@ -3,12 +3,15 @@ ENVDIR := .venv
 DEPS := .deps
 TARGET ?= ./corpus
 RULES ?= rules.yaml
+DEMO ?= ./demo_vulnerable.py
+REPOS := .repos
+FMT ?= summary
 STAMP := .install-stamp
 
 PYBIN = $(shell [ -x $(ENVDIR)/bin/python ] && echo $(ENVDIR)/bin/python || echo $(PY))
 RUNNER = $(shell [ -x $(ENVDIR)/bin/python ] || echo PYTHONPATH=$(DEPS)) $(PYBIN)
 
-.PHONY: all start install test scan sarif bench baseline verify-sarif clean
+.PHONY: all start install test scan sarif bench baseline demo scan-repo verify-sarif clean
 
 all: start
 
@@ -44,6 +47,25 @@ baseline: install
 	@$(RUNNER) -m scanner.cli baseline $(TARGET) --rules $(RULES) -o .scanner-baseline.json
 	@echo "wrote .scanner-baseline.json"
 
+scan-repo: install
+	@test -n "$(REPO)" || { echo "usage: make scan-repo REPO=<git-url|org/name|path> [FMT=table|summary|sarif]"; exit 2; }
+	@url=$(REPO); \
+	 case "$$url" in \
+	   */*://*|*@*:*) ;; \
+	   */*) [ -d "$$url" ] || url=https://github.com/$$url.git ;; \
+	 esac; \
+	 if [ -d "$$url" ]; then dest=$$url; \
+	 else \
+	   dest=$(REPOS)/$$(basename $$url .git); \
+	   if [ -d "$$dest" ]; then echo "reusing $$dest"; \
+	   else mkdir -p $(REPOS); echo "cloning $$url"; \
+	        git clone --depth 1 --quiet $$url $$dest || exit 1; fi; \
+	 fi; \
+	 $(RUNNER) -m scanner.cli scan $$dest --rules $(RULES) --format $(FMT)
+
+demo: install
+	@$(RUNNER) -m scanner.cli scan $(DEMO) --rules $(RULES) --format table
+
 verify-sarif: install
 	@if [ -x $(ENVDIR)/bin/pip ]; then $(ENVDIR)/bin/pip install -q jsonschema; \
 	 else $(PY) -m pip install -q --target $(DEPS) jsonschema; fi
@@ -51,4 +73,5 @@ verify-sarif: install
 
 clean:
 	@rm -rf $(ENVDIR) $(DEPS) $(STAMP) .pytest_cache results.sarif
+	@echo "kept $(REPOS)/ (remove by hand if you want the clones gone)"
 	@find . -name __pycache__ -type d -prune -exec rm -rf {} +

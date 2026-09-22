@@ -5,12 +5,18 @@ shared:
     - flask.request.form.*
     - flask.request.form
     - flask.request.values.*
+    - flask.request.values
     - flask.request.json
     - flask.request.get_json
     - flask.request.data
+    - flask.request.get_data
+    - flask.request.stream
     - flask.request.cookies.*
+    - flask.request.cookies
     - flask.request.headers.*
+    - flask.request.headers
     - flask.request.files.*
+    - flask.request.files
     - flask.request.view_args
     - flask.request.query_string
     - flask.request.full_path
@@ -149,6 +155,20 @@ rules:
         arg: 1
       - pattern: "*.save"
         arg: 0
+      - pattern: "*.read_text"
+        arg: receiver
+      - pattern: "*.write_text"
+        arg: receiver
+      - pattern: "*.read_bytes"
+        arg: receiver
+      - pattern: "*.open"
+        arg: receiver
+      - pattern: tarfile.open
+        arg: 0
+      - pattern: zipfile.ZipFile
+        arg: 0
+      - pattern: shelve.open
+        arg: 0
     sanitizers:
       - pattern: werkzeug.utils.secure_filename
       - pattern: "*.secure_filename"
@@ -209,7 +229,19 @@ rules:
         arg: 0
       - pattern: django.http.HttpResponse
         arg: 0
+        when: {kwarg: content_type, absent: true}
+      - pattern: django.http.HttpResponse
+        arg: 0
+        when: {kwarg: content_type, equals: "text/html"}
       - pattern: "*.HttpResponse"
+        arg: 0
+        when: {kwarg: content_type, absent: true}
+      - pattern: "*.HttpResponse"
+        arg: 0
+        when: {kwarg: content_type, equals: "text/html"}
+      - pattern: flask.make_response
+        arg: 0
+      - pattern: "*.make_response"
         arg: 0
     sanitizers:
       - pattern: html.escape
@@ -248,6 +280,8 @@ rules:
         arg: 0
         when: {kwarg: Loader, absent: true}
       - pattern: "*.load_module"
+        arg: 0
+      - pattern: shelve.open
         arg: 0
     sanitizers: []
 
@@ -292,8 +326,7 @@ rules:
         - "*<*>*"
         - "*${*"
         - "*%s*"
-        - "*{0}*"
-        - "*{}*"
+        - "*{*}*"
         - "*not-a-real*"
         - "*fake*"
         - "*sample*"

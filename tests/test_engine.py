@@ -116,3 +116,106 @@ def run_query(cursor, sql):
         shipped_rules,
     )
     assert findings == []
+
+
+def test_summary_format_is_compact_and_grouped(project, shipped_rules, capsys):
+    from scanner.cli import main
+
+    root = project({"a.py": CALLER.format(n="a"), "helpers.py": HELPER})
+    code = main(["scan", str(root), "--rules", "rules.yaml", "--format", "summary"])
+    out = capsys.readouterr()
+
+    assert code == 0
+    assert "BY RULE" in out.out and "BY SEVERITY" in out.out and "BY FILE" in out.out
+    assert "py.sql-injection" in out.out
+    assert "      entry " not in out.out
+    assert "      sink " not in out.out
+    assert len(out.out.splitlines()) < len(
+        _table_output(main, root, capsys).splitlines()
+    )
+
+
+def test_summary_clusters_one_line_per_sink(project, shipped_rules, capsys):
+    from scanner.cli import main
+
+    root = project({"a.py": TWO_ENTRIES})
+    main(["scan", str(root), "--rules", "rules.yaml", "--format", "summary"])
+    out = capsys.readouterr().out
+
+    sink_lines = [l for l in out.splitlines() if "py.sql-injection" in l and ".py:" in l]
+    assert len(sink_lines) == 1
+    assert "x2 entry points" in sink_lines[0]
+    assert "1 sink(s)" in out and "2 finding(s)" in out
+
+
+TWO_ENTRIES = """
+from flask import request
+
+
+def run(cursor, value):
+    cursor.execute("SELECT * FROM t WHERE c = '" + value + "'")
+
+
+def first(cursor):
+    run(cursor, request.args.get("a"))
+
+
+def second(cursor):
+    run(cursor, request.form.get("b"))
+"""
+
+
+def _table_output(main, root, capsys):
+    main(["scan", str(root), "--rules", "rules.yaml", "--format", "table"])
+    return capsys.readouterr().out
+
+
+def test_progress_goes_to_stderr_and_quiet_silences_it(project, shipped_rules, capsys):
+    from scanner.cli import main
+
+    root = project({"a.py": CALLER.format(n="a"), "helpers.py": HELPER})
+
+    main(["scan", str(root), "--rules", "rules.yaml", "--format", "sarif"])
+    noisy = capsys.readouterr()
+    assert "python file(s) to scan" in noisy.err and "finding(s)" in noisy.err
+    assert noisy.out.startswith("{")
+
+    main(["scan", str(root), "--rules", "rules.yaml", "--format", "sarif", "--quiet"])
+    quiet = capsys.readouterr()
+    assert quiet.err == ""
+    assert quiet.out.startswith("{")
+
+
+def test_module_cache_is_bounded_and_results_unchanged(project, shipped_rules, monkeypatch):
+    import scanner.engine as eng
+
+    files = {f"pkg/mod_{n}.py": SAMPLE.format(n=n) for n in range(40)}
+    root = project(files)
+    unbounded = scan(ScanConfig(target=root, rules=shipped_rules, jobs=1, root=root))
+
+    monkeypatch.setattr(eng, "MODULE_CACHE_SIZE", 4)
+    seen = []
+    original = eng.ScanContext.load
+
+    def watched(self, path):
+        module = original(self, path)
+        seen.append(len(self._cache))
+        return module
+
+    monkeypatch.setattr(eng.ScanContext, "load", watched)
+    bounded = scan(ScanConfig(target=root, rules=shipped_rules, jobs=1, root=root))
+
+    assert max(seen) <= 4
+    assert [f.sort_key for f in bounded] == [f.sort_key for f in unbounded]
+
+
+def test_progress_reports_every_file_batch_and_total(project, shipped_rules):
+    files = {f"pkg/mod_{n}.py": SAMPLE.format(n=n) for n in range(30)}
+    root = project(files)
+    calls = []
+    scan(
+        ScanConfig(target=root, rules=shipped_rules, jobs=1, root=root),
+        progress=lambda done, total: calls.append((done, total)),
+    )
+    assert calls[0] == (0, 30)
+    assert calls[-1] == (30, 30)

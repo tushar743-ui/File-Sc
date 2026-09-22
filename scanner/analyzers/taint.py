@@ -627,6 +627,10 @@ class _Walker:
         arg_taints: list,
         kw_taints: list,
     ) -> list[tuple[Taint, ast.AST]]:
+        if spec.arg == "receiver":
+            if not isinstance(node.func, ast.Attribute):
+                return []
+            return [(self.eval(node.func.value), node.func.value)]
         if spec.arg is None or spec.arg == "any":
             pairs = [(t, node.args[i]) for i, t in enumerate(arg_taints)]
             pairs += [
@@ -680,6 +684,7 @@ class _Walker:
         sink_step = _step(
             self.module, node, f"reaches {spec.pattern} without neutralization"
         )
+        recorded = False
         for flow in sorted(taint, key=lambda f: f.order):
             if spec.rule_id not in flow.rules:
                 continue
@@ -688,13 +693,14 @@ class _Walker:
                     self.sink_flows.append(
                         (spec, flow.param, flow.rules, flow.steps + (sink_step,), flow.field)
                     )
-                    return True
+                    recorded = True
+                    continue
                 continue
             if self.record_summary:
                 continue
             self.emit(spec, node, flow.steps + (sink_step,))
             return True
-        return False
+        return recorded
 
     def emit(self, spec: SinkSpec, node: ast.AST, steps: tuple[Step, ...]) -> None:
         rule = self.engine.rule_by_id[spec.rule_id]

@@ -508,3 +508,43 @@ def f():
     Runner().execute_now(request.args.get("cmd"))
 """
     assert scan_body(run_scan, shipped_rules, body) == []
+
+
+MULTI_PARAM = """
+from flask import request
+
+
+def query(cursor, table, term):
+    cursor.execute("SELECT * FROM " + table + " WHERE x = '" + term + "'")
+
+
+def handler(cursor):
+    query(cursor, "reports", request.args.get("q"))
+"""
+
+MULTI_FIELD = """
+from flask import request
+
+
+class Repo:
+    def __init__(self, source):
+        self.term = source.args.get("term")
+        self.table = "reports"
+
+    def run(self, cursor):
+        cursor.execute("SELECT * FROM " + self.table + " WHERE x = '" + self.term + "'")
+
+
+def handler(cursor):
+    return Repo(request).run(cursor)
+"""
+
+
+def test_summary_keeps_every_param_flow_not_only_the_first(run_scan, shipped_rules):
+    findings = run_scan({"a.py": MULTI_PARAM}, shipped_rules)
+    assert [f.rule_id for f in findings] == ["py.sql-injection"]
+
+
+def test_summary_keeps_every_field_flow_not_only_the_first(run_scan, shipped_rules):
+    findings = run_scan({"b.py": MULTI_FIELD}, shipped_rules)
+    assert [f.rule_id for f in findings] == ["py.sql-injection"]

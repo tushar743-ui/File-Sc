@@ -19,6 +19,65 @@ def _paint(text: str, code: str, enabled: bool) -> str:
     return f"{code}{text}{RESET}" if enabled else text
 
 
+def _counts_block(findings: list[Finding], key) -> list[str]:
+    counts: dict[str, int] = {}
+    for finding in findings:
+        name = key(finding)
+        counts[name] = counts.get(name, 0) + 1
+    width = max(len(name) for name in counts)
+    return [
+        f"  {name.ljust(width)}  {counts[name]}"
+        for name in sorted(counts, key=lambda n: (-counts[n], n))
+    ]
+
+
+def render_summary(findings: list[Finding], stream=None) -> str:
+    color = bool(stream and hasattr(stream, "isatty") and stream.isatty())
+    if not findings:
+        return "No findings.\n"
+    lines = ["BY RULE"]
+    lines.extend(_counts_block(findings, lambda f: f.rule_id))
+    lines.append("")
+    lines.append("BY SEVERITY")
+    lines.extend(_counts_block(findings, lambda f: f.severity))
+    lines.append("")
+    lines.append("BY FILE")
+    top = _counts_block(findings, lambda f: f.file)
+    lines.extend(top[:20])
+    if len(top) > 20:
+        lines.append(f"  ... {len(top) - 20} more file(s)")
+    lines.append("")
+    sinks: dict[tuple, list[Finding]] = {}
+    for finding in findings:
+        sinks.setdefault((finding.rule_id, finding.file, finding.line, finding.col), []).append(finding)
+    width_severity = max(len(f.severity) for f in findings)
+    width_rule = max(len(f.rule_id) for f in findings)
+    for (rule_id, file, line, col), group in sinks.items():
+        finding = group[0]
+        hops = max(len(f.path) for f in group)
+        trail = f"  ({hops} hops)" if hops > 2 else ""
+        entries = f"  x{len(group)} entry points" if len(group) > 1 else ""
+        lines.append(
+            "  ".join(
+                [
+                    _paint(
+                        finding.severity.upper().ljust(width_severity),
+                        COLORS.get(finding.severity, ""),
+                        color,
+                    ),
+                    rule_id.ljust(width_rule),
+                    f"{file}:{line}:{col}" + trail + entries,
+                ]
+            )
+        )
+    lines.append("")
+    lines.append(
+        f"{len(sinks)} sink(s) in {len(set(f.file for f in findings))} file(s), "
+        f"{len(findings)} finding(s) counting entry points"
+    )
+    return "\n".join(lines) + "\n"
+
+
 def render(findings: list[Finding], stream=None) -> str:
     color = bool(stream and hasattr(stream, "isatty") and stream.isatty())
     if not findings:
