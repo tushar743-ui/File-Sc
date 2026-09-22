@@ -58,10 +58,14 @@ scan-repo: install
 	 else \
 	   dest=$(REPOS)/$$(basename $$url .git); \
 	   if [ -d "$$dest" ]; then echo "reusing $$dest"; \
-	   else mkdir -p $(REPOS); echo "cloning $$url (python files only)"; \
+	   else mkdir -p $(REPOS); \
+	        git ls-remote --exit-code $$url HEAD >/dev/null 2>&1 \
+	          || { echo "cannot reach $$url (wrong name, private repo, or no network)"; exit 1; }; \
+	        echo "cloning $$url (python files only)"; \
 	        git clone --depth 1 --filter=blob:none --sparse --progress $$url $$dest 2>&1 \
 	          && git -C $$dest sparse-checkout set --no-cone '/*.py' '**/*.py' \
-	          || { rm -rf $$dest; git clone --depth 1 --progress $$url $$dest || exit 1; }; fi; \
+	          || { echo "sparse clone unsupported, retrying in full"; rm -rf $$dest; \
+	               git clone --depth 1 --progress $$url $$dest || { rm -rf $$dest; exit 1; }; }; fi; \
 	 fi; \
 	 $(RUNNER) -m scanner.cli scan $$dest --rules $(RULES) --format $(FMT)
 

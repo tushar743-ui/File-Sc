@@ -170,7 +170,7 @@
       "expected": [
         {
           "line": 7,
-          "rule": "py.command-injection"
+          "rule": "py.command-injection.local"
         }
       ]
     },

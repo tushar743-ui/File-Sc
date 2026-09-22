@@ -40,8 +40,7 @@ syntactic approximations: a branch that always exits does not contribute to the 
 when exactly one branch of an `if` exits, values named by a validating predicate in the
 test are killed afterwards. That is not path-sensitivity, it is "code after a guard that
 rejects has been guarded". It is wrong when the predicate checks a different property than
-the sink cares about, and it still removed both remaining corpus false positives and most
-of Airflow's command-injection noise.
+the sink cares about, and it still removed both remaining corpus false positives.
 
 ## Finding identity for baselines
 
@@ -52,11 +51,11 @@ call and its literals, not the names around it.
 
 Deliberately absent: line numbers, columns, the enclosing function name, formatting, and
 local variable names. Inserting twenty lines above a finding, renaming the function around
-it, reformatting the call across three lines, and renaming a local at the sink all keep it
-out of the new set. Each is tested in `tests/test_baseline.py`. File renames are handled by
-a second, path-free fingerprint consulted only when the baseline entry's file is absent
-from the scan, so moving `app.py` to `views.py` keeps the finding while copy-pasting a
-vulnerable function into a new file correctly reports a new one.
+it, reformatting the call, and renaming a local at the sink all keep it out of the new set.
+Each is tested in `tests/test_baseline.py`. File renames are handled by a second, path-free
+fingerprint consulted only when the baseline entry's file is absent from the scan, so
+moving `app.py` to `views.py` keeps the finding while copy-pasting a vulnerable function
+into a new file correctly reports a new one.
 
 **What breaks it.** Editing the flagged statement, which is intended. Reordering two
 byte-identical findings, because the ordinal is positional. And anonymising identifiers
@@ -74,15 +73,22 @@ survive code calling libraries the analyser has never heard of.
 
 Precision is bought back in rule data, the part a user can change without reading my
 source. Sinks carry an argument index, so a parameterized query is silent, and a `when`
-guard, so `subprocess.run` is dangerous with `shell=True` and quiet without it. When
-triage showed `sys.argv` and `os.environ` producing all of the path traversal and SSRF
-noise, the fix was deleting two lines of YAML.
+guard, so `subprocess.run` is dangerous with `shell=True` and quiet without it.
+
+The sharpest instance is severity by source. `flask.request.args.get` and `os.environ.get`
+both reach `cursor.execute`, and only one is an attack: whoever can set your environment
+already owns the machine, and does not need your SQL bug. Treating the two alike is what
+made Airflow report six criticals nobody would act on. So the three rules accepting both
+source sets became six, each pair identical but for `sources:`, the local half at medium.
+Airflow went from six criticals to zero, the same 55 findings, none lost and none
+reclassified as safe. YAML anchors keep one copy of each sink list. No engine change: the
+severity of a finding is a property of where the data came from, and that lives in the
+data, which is the clearest evidence the format does what Part 1 asked.
 
 Two exceptions where I spent engine code on precision. Provably-constant containers, since
-treating `ALLOWED.get(user_input)` as tainted poisons an entire class of correct programs.
-And the guard rule above, which earned its exception by removing a false-positive class no
-rule edit could reach: the thing to suppress is a shape in the user's code, not a name they
-could list.
+treating `ALLOWED.get(user_input)` as tainted poisons a class of correct programs. And the
+guard rule above, which removed a false-positive class no rule edit could reach: the thing
+to suppress is a shape in the user's code, not a name they could list.
 
 I would rather miss a dispatch table than report Django's number formatter. Real-repo
 precision is 0.815 per finding and 0.880 per sink, and the thing it still reports is
@@ -109,9 +115,8 @@ shape, and they are where a codebase hides its dangerous operations.
 
 It needs a second abstract domain beside taint: for each environment key, the set of
 dotted paths the value may name, propagated through assignment, containers and returns,
-and consulted at every call site before pattern matching. Not conceptually hard, not
-small, since every place that reads a taint tuple would read a pair. A week, not an
-afternoon.
+and consulted at every call site before pattern matching. Not conceptually hard, but every
+place that reads a taint tuple would read a pair. A week, not an afternoon.
 
 ## What I cut, and what another week would buy
 
@@ -121,21 +126,22 @@ resolution takes the first base defining a name; container field-sensitivity; an
 callables held in data.
 
 Another week, in order: the dotted-path domain, which also fixes decorators, `partial` and
-dispatch tables at once. Then clustering table output by sink, because one wrong
-conclusion in Django currently prints three times. Then a call graph built once per scan
-instead of resolved on demand, which would cut the 39s Airflow run. Then container
-field-sensitivity.
+dispatch tables at once. Then an argv-vector domain, since taint in a non-zeroth element of
+a list handed to `os.spawnlp` or `os.execvp` cannot change which program runs, and that
+shape is four of Airflow's five command-injection hits, leaving only the genuine
+`shell=True` one. Then a call graph built once per scan instead of
+resolved on demand, which would cut the 33s Airflow run. Then container field-sensitivity.
 
 ## Two things the AI assistant got wrong that I caught
 
 **A value filter that silently deleted real secrets.** To kill a false-positive class
 where a dotted import path is assigned to a `*_KEY` name, it added `exclude_identifier_path`:
-drop any dot-separated value whose segments are all identifiers. It hit the four
-targets and also dropped `VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"`, a real Vault token
-shape, while keeping a near-identical literal one character longer. Caught by diffing the
-Airflow findings, not by the corpus, which scored 1.000 throughout. It now requires three
-segments, pinned by a test. A filter added to remove noise has to be measured against what
-it removes, not only what it was aimed at.
+drop any dot-separated value whose segments are all identifiers. It hit the four targets
+and also dropped `VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"`, a real Vault token shape,
+while keeping a near-identical literal one character longer. Caught by diffing the Airflow
+findings, not by the corpus, which scored 1.000 throughout. It now requires three segments,
+pinned by a test. A filter added to remove noise has to be measured against what it
+removes, not only what it was aimed at.
 
 **A rule key that was dead on arrival.** The `guards:` key was implemented, documented and
 shipped, and never worked for the case anyone would write: the lookup sat inside an

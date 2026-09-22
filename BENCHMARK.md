@@ -35,7 +35,8 @@ not.
 
 | RULE | TP | FP | FN | PRECISION | RECALL | F1 |
 |---|---|---|---|---|---|---|
-| py.command-injection | 9 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| py.command-injection | 8 | 0 | 0 | 1.000 | 1.000 | 1.000 |
+| py.command-injection.local | 1 | 0 | 0 | 1.000 | 1.000 | 1.000 |
 | py.hardcoded-secret | 3 | 0 | 0 | 1.000 | 1.000 | 1.000 |
 | py.insecure-deserialization | 4 | 0 | 0 | 1.000 | 1.000 | 1.000 |
 | py.path-traversal | 6 | 0 | 0 | 1.000 | 1.000 | 1.000 |

@@ -56,3 +56,4 @@ notes.md
 demo.sarif
 results.sarif
 .scanner-baseline.json
+TRADEOFFS.md

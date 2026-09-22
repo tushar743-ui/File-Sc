@@ -44,10 +44,8 @@ rules:
     cwe: CWE-89
     message: "Untrusted input reaches a SQL query without parameterization"
     kind: taint
-    sources:
-      - *web_input
-      - *process_input
-    sinks:
+    sources: *web_input
+    sinks: &sql_sinks
       - pattern: "*.execute"
         arg: 0
       - pattern: "*.executemany"
@@ -62,7 +60,7 @@ rules:
         arg: 0
       - pattern: "*.from_statement"
         arg: 0
-    sanitizers:
+    sanitizers: &sql_sanitizers
       - pattern: myapp.db.quote_identifier
       - pattern: "*.quote_identifier"
       - pattern: psycopg2.sql.Identifier
@@ -76,10 +74,8 @@ rules:
     cwe: CWE-78
     message: "Untrusted input reaches a shell command"
     kind: taint
-    sources:
-      - *web_input
-      - *process_input
-    sinks:
+    sources: *web_input
+    sinks: &cmd_sinks
       - pattern: os.system
         arg: 0
       - pattern: os.popen
@@ -111,7 +107,7 @@ rules:
         arg: 0
       - pattern: commands.getoutput
         arg: 0
-    sanitizers:
+    sanitizers: &cmd_sanitizers
       - pattern: shlex.quote
       - pattern: pipes.quote
       - pattern: "*.shlex_quote"
@@ -256,10 +252,8 @@ rules:
     cwe: CWE-502
     message: "Untrusted input is deserialized by a format that can execute code"
     kind: taint
-    sources:
-      - *web_input
-      - *process_input
-    sinks:
+    sources: *web_input
+    sinks: &deser_sinks
       - pattern: pickle.loads
         arg: 0
       - pattern: pickle.load
@@ -283,7 +277,34 @@ rules:
         arg: 0
       - pattern: shelve.open
         arg: 0
-    sanitizers: []
+    sanitizers: &deser_sanitizers []
+
+  - id: py.sql-injection.local
+    severity: medium
+    cwe: CWE-89
+    message: "Process-local input reaches a SQL query without parameterization; exploiting it requires control of the environment or command line"
+    kind: taint
+    sources: *process_input
+    sinks: *sql_sinks
+    sanitizers: *sql_sanitizers
+
+  - id: py.command-injection.local
+    severity: medium
+    cwe: CWE-78
+    message: "Process-local input reaches a shell command; exploiting it requires control of the environment or command line"
+    kind: taint
+    sources: *process_input
+    sinks: *cmd_sinks
+    sanitizers: *cmd_sanitizers
+
+  - id: py.insecure-deserialization.local
+    severity: medium
+    cwe: CWE-502
+    message: "Process-local input is deserialized by a format that can execute code; exploiting it requires control of the environment or command line"
+    kind: taint
+    sources: *process_input
+    sinks: *deser_sinks
+    sanitizers: *deser_sanitizers
 
   - id: py.hardcoded-secret
     severity: high
