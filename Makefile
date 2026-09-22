@@ -58,8 +58,10 @@ scan-repo: install
 	 else \
 	   dest=$(REPOS)/$$(basename $$url .git); \
 	   if [ -d "$$dest" ]; then echo "reusing $$dest"; \
-	   else mkdir -p $(REPOS); echo "cloning $$url"; \
-	        git clone --depth 1 --quiet $$url $$dest || exit 1; fi; \
+	   else mkdir -p $(REPOS); echo "cloning $$url (python files only)"; \
+	        git clone --depth 1 --filter=blob:none --sparse --progress $$url $$dest 2>&1 \
+	          && git -C $$dest sparse-checkout set --no-cone '/*.py' '**/*.py' \
+	          || { rm -rf $$dest; git clone --depth 1 --progress $$url $$dest || exit 1; }; fi; \
 	 fi; \
 	 $(RUNNER) -m scanner.cli scan $$dest --rules $(RULES) --format $(FMT)
 

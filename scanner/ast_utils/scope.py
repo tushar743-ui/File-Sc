@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -91,7 +92,9 @@ def _index_functions(tree: ast.Module) -> tuple[dict[str, FunctionInfo], dict[st
 
 
 def build_module(path: str, rel_path: str, module_name: str, source: str) -> ModuleInfo:
-    tree = ast.parse(source, filename=path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tree = ast.parse(source, filename=path)
     functions, classes = _index_functions(tree)
     return ModuleInfo(
         path=path,
