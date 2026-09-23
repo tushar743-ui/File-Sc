@@ -352,42 +352,20 @@ unbounded is 4.5 GB and rising.
 
 ## What I know is broken
 
-- The corpus now scores 1.000 on both axes, which means it has stopped being a
-  measurement and is only a regression suite. Read the open-source numbers in
-  BENCHMARK.md instead.
-- Real-repo precision is 0.815 per finding and 0.880 per sink across five repositories
-  under a generous definition of correct, and roughly 0.01 under "would an engineer open
-  a ticket". Most surviving findings are credential-shaped literals in test fixtures.
-  BENCHMARK.md names the residual false-positive classes.
+- Real-repo precision is the honest number, not the corpus. The corpus scores 1.000 on
+  both axes, so it is now a regression suite rather than a measurement. Across five public
+  repositories precision is 0.815 per finding under a generous definition of correct, and
+  roughly 0.01 under "would an engineer open a ticket". BENCHMARK.md has the breakdown.
 - Autoescaped template output is the largest false-positive class.
-  `HttpResponse(render_to_string(...))` is reported, because the engine cannot see that
-  the template engine escaped the value. It cannot follow a sanitizer passed as a
-  function either, so `map(conditional_escape, args)` does not kill taint.
+  `HttpResponse(render_to_string(...))` is reported because the engine cannot see that the
+  template engine escaped the value, and a sanitizer passed as a function, as in
+  `map(conditional_escape, args)`, does not kill taint.
 - Strings carry no constant-prefix information, so
   `requests.get(f"https://fixed-host.example/{tainted}")` is reported as SSRF even though
-  the host cannot be steered. This is the most common real-repo false positive after test
-  credentials and is the first thing I would fix.
-- The module cache is bounded per worker, not shared between them. Eight workers each
-  parse the same popular module rather than parsing it once, so peak memory is eight
-  caches wide. A shared read-only store would cut it, at the cost of the fork-and-forget
-  simplicity the pool has now.
-- A repository is scanned as one module index rooted at the scan target. A monorepo with
-  several independent packages that shadow each other's module names will resolve some
-  cross-file calls to the wrong file; `--root` moves the root but cannot split it.
+  the host cannot be steered. This is the first thing I would fix.
 - Path-sensitivity is a heuristic, not an analysis. A guard kills taint only when one
-  branch of the `if` always exits and the predicate is either on a fixed list of
-  validating methods or declared under the rule's `guards:` key. A project's own validator
-  is invisible until someone lists it. Validation that does not exit, such as
-  `x = x if valid(x) else ""`, is not recognised at all.
-- Container fields are not distinguished. `d["safe"]` is tainted once `d["bad"]` is.
-- A sink guarded by `when: {kwarg: ..., equals: ...}` is silent when the keyword is passed
-  a variable rather than a literal. `HttpResponse(body, content_type=ct)` is never
-  reported even if `ct` can be `text/html`. Deliberate, on the precision side.
+  branch of the `if` always exits and the predicate is on a fixed list of validators or
+  declared under the rule's `guards:` key. A project's own validator is invisible until
+  someone lists it.
 - Callables held in containers are invisible. `HANDLERS["run"](cmd)` is never a sink.
-- Base-class resolution stops at the first base that defines the name rather than
-  computing the real MRO, so diamond inheritance can resolve to the wrong body.
-- Scanning a single file gives that file its own module index of one, so cross-file flow
-  is not resolved. Point the scanner at a directory to get interprocedural results.
-- `scanner bench` compares against labels by line number, so a finding correct in
-  substance but reported on a different line of a multi-line call counts as both a false
-  positive and a false negative.
+  This is the worst false negative in BENCHMARK.md.
