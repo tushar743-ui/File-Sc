@@ -8,7 +8,10 @@ Rules are data. Adding a vulnerability class means editing `rules.yaml`.
 
 ## Install, run, test
 
+Needs Python 3.10+, git and make.
+
 ```bash
+git clone https://github.com/tushar743-ui/File-Sc.git && cd File-Sc
 make                                    # install, test, and scan the corpus
 ```
 
@@ -38,6 +41,10 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"   # install
 .venv/bin/scanner scan ./target --rules rules.yaml            # run
 .venv/bin/pytest                                              # test
 ```
+
+`./target` stands for the directory you want to scan; `./corpus` works out of the box.
+The test run reports one skip: the SARIF schema check needs `jsonschema`, which only
+`make verify-sarif` installs.
 
 The only runtime dependency is PyYAML. Everything else is the standard library.
 
