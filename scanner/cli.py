@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from .analyzers.base import SEVERITY_ORDER, meets_threshold
@@ -140,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
         return COMMANDS[args.command](args)
     except (RuleError, ValueError, OSError) as error:
         sys.stderr.write(f"scanner: {error}\n")
+        return EXIT_ERROR
+    except BrokenProcessPool:
+        sys.stderr.write("scanner: a worker process died (out of memory or killed); scan aborted\n")
         return EXIT_ERROR
 
 

@@ -338,7 +338,7 @@ the function it describes instead of re-walking the body per analysis; pattern l
 memoised on the candidate-name tuple, which the profiler named as the hottest function; the second, sticky-state pass
 runs only for modules that actually write to a field or global; imports and module-level
 constants are collected in a single `ast.walk` rather than one each, which was 20% of the
-time on a large repository; files are distributed across a process pool with `Pool.imap`,
+time on a large repository; files are distributed across a process pool with `ProcessPoolExecutor.map`,
 which preserves order while letting progress be reported as results arrive. Output is
 sorted and serialized with sorted keys, so serial and parallel runs are byte-identical.
 
@@ -369,3 +369,46 @@ unbounded is 4.5 GB and rising.
   someone lists it.
 - Callables held in containers are invisible. `HANDLERS["run"](cmd)` is never a sink.
   This is the worst false negative in BENCHMARK.md.
+
+## Two things the AI assistant got wrong that I caught
+
+Both are in the parallel scan, and both passed every test until I asked what happens when
+a worker goes down. DECISIONS.md lists two more from the analysis itself.
+
+- **One bad file threw away the whole scan.** The assistant caught the errors it expected
+  (unreadable file, syntax error, bad encoding, deep recursion) and nothing else. An
+  unexpected exception in one file, such as a `MemoryError` or an analyzer bug on an
+  unusual AST, came back through the pool and crashed the run, discarding the results for
+  every file that had scanned fine. I had it wrap each file in its own `try/except
+  Exception`, so the file is skipped with a `scanner: skipped <path>` warning on stderr
+  and the rest of the scan completes.
+- **A dead worker hung the scan forever.** It used `multiprocessing.Pool.imap`. When a
+  worker process dies outright (OOM killer, `kill -9`, segfault), `Pool` quietly starts a
+  replacement, but the batch of files the dead worker held is lost and `imap` waits for it
+  indefinitely. In CI that is a job stuck until the runner's timeout, with no error. I had
+  it switch to `concurrent.futures.ProcessPoolExecutor`, which raises `BrokenProcessPool`
+  instead; the CLI reports that a worker died and exits with code 2.
+
+Both are pinned by tests in `tests/test_engine.py`, and both tests fail against the old
+code (the second one by hitting a 30 second alarm). The output on Django is byte-identical
+before and after, and the scan time did not change (11.1s before, 10.6s after).
+
+## If GitHub is down
+
+A GitHub outage only stops you fetching new repos from GitHub. Everything else keeps
+working. The scanner reads local directories and makes no network calls. `make scan-repo`
+reuses clones already in `.repos/`, and it also accepts any git URL (GitLab, Codeberg, a
+mirror) or a local path. Python projects can be fetched from PyPI with
+`pip download --no-binary :all: --no-deps <package>` and scanned from the unpacked source.
+
+To keep fetching during an outage, point git at a mirror. Git rewrites the URL natively,
+so no scanner change is needed:
+
+```
+git config --global url."https://your-mirror.example/".insteadOf "https://github.com/"
+```
+
+Every `github.com` URL, including the ones `make scan-repo` builds from `org/name`, is then
+fetched from the mirror (a self-hosted Gitea or GitLab mirroring the repos you scan, or a
+company git proxy). Remove the setting when GitHub is back with
+`git config --global --unset url."https://your-mirror.example/".insteadOf`.

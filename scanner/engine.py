@@ -3,7 +3,9 @@ from __future__ import annotations
 import ast
 import multiprocessing
 import os
+import sys
 from collections import OrderedDict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -164,6 +166,14 @@ def _worker_init(rules: list[Rule], context: ScanContext) -> None:
 
 
 def _scan_one(path: str) -> list[Finding]:
+    try:
+        return _analyze(path)
+    except Exception as error:
+        sys.stderr.write(f"scanner: skipped {path}: {type(error).__name__}: {error}\n")
+        return []
+
+
+def _analyze(path: str) -> list[Finding]:
     context: ScanContext = _WORKER["context"]
     module = context.load(path)
     if module is None:
@@ -230,10 +240,13 @@ def scan(config: ScanConfig, progress=None) -> list[Finding]:
 
     jobs = config.jobs or min(os.cpu_count() or 1, 8)
     if jobs > 1 and len(files) >= 24:
-        with multiprocessing.get_context("fork").Pool(
-            processes=jobs, initializer=_worker_init, initargs=(config.rules, context)
+        with ProcessPoolExecutor(
+            max_workers=jobs,
+            mp_context=multiprocessing.get_context("fork"),
+            initializer=_worker_init,
+            initargs=(config.rules, context),
         ) as pool:
-            batches = _drain(pool.imap(_scan_one, files, chunksize=8), len(files), progress)
+            batches = _drain(pool.map(_scan_one, files, chunksize=8), len(files), progress)
     else:
         _worker_init(config.rules, context)
         batches = _drain((_scan_one(path) for path in files), len(files), progress)

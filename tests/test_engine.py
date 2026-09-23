@@ -1,5 +1,11 @@
+import os
+import signal
 import time
+from concurrent.futures.process import BrokenProcessPool
 
+import pytest
+
+from scanner.analyzers.taint import TaintAnalyzer
 from scanner.engine import ScanConfig, discover, scan
 
 SAMPLE = """
@@ -219,3 +225,45 @@ def test_progress_reports_every_file_batch_and_total(project, shipped_rules):
     )
     assert calls[0] == (0, 30)
     assert calls[-1] == (30, 30)
+
+
+def _fail_on(monkeypatch, name, action):
+    original = TaintAnalyzer.analyze
+
+    def analyze(self, module):
+        if module.rel_path.endswith(name):
+            action()
+        return original(self, module)
+
+    monkeypatch.setattr(TaintAnalyzer, "analyze", analyze)
+
+
+def _raise():
+    raise MemoryError("boom")
+
+
+@pytest.mark.parametrize("jobs", [1, 4])
+def test_unexpected_error_skips_only_that_file(monkeypatch, capfd, project, shipped_rules, jobs):
+    root = project({f"pkg/mod_{n}.py": SAMPLE.format(n=n) for n in range(30)})
+    _fail_on(monkeypatch, "mod_7.py", _raise)
+    findings = scan(ScanConfig(target=root, rules=shipped_rules, jobs=jobs, root=root))
+    assert len(findings) == 29
+    assert "mod_7.py" not in {f.file.split("/")[-1] for f in findings}
+    assert "skipped" in capfd.readouterr().err
+
+
+def test_dead_worker_aborts_instead_of_hanging(monkeypatch, project, shipped_rules):
+    root = project({f"pkg/mod_{n}.py": SAMPLE.format(n=n) for n in range(30)})
+    _fail_on(monkeypatch, "mod_7.py", lambda: os._exit(1))
+
+    def hung(signum, frame):
+        raise AssertionError("scan hung after a worker died")
+
+    previous = signal.signal(signal.SIGALRM, hung)
+    signal.alarm(30)
+    try:
+        with pytest.raises(BrokenProcessPool):
+            scan(ScanConfig(target=root, rules=shipped_rules, jobs=4, root=root))
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
