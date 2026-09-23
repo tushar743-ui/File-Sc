@@ -370,6 +370,59 @@ unbounded is 4.5 GB and rising.
 - Callables held in containers are invisible. `HANDLERS["run"](cmd)` is never a sink.
   This is the worst false negative in BENCHMARK.md.
 
+## What I would build next
+
+Neither of these is implemented. Both are designed to fit the current engine.
+
+**Entry-point reachability.** The scanner today reports every flow from a source to a
+sink, wherever it lives. That is why real-repo precision is 0.815 by rule definition and
+roughly 0.01 by "would an engineer act on this": test fixtures, code only reachable from
+`os.environ` or `sys.argv`, and code nothing calls all produce findings. The fix is to
+ask one more question before reporting: can an outside attacker reach this?
+
+1. Find the real entry points: Flask `@app.route`, FastAPI `@router.get`, Django
+   `urls.py` views, Celery tasks. Declared in YAML as a new `entrypoint` rule kind, so it
+   registers in `KIND_REGISTRY` with no change to the traversal.
+2. Walk the call graph from them, using the cross-file summaries that already exist.
+3. Rank each finding by where its route starts: an HTTP entry point is critical, CLI or
+   environment only is medium (the `.local` split already does this), and unreachable
+   code such as tests is hidden by default.
+
+Every finding that survives then carries its proof: this URL, this function, this sink.
+
+**A seventh rule: LLM output reaching a dangerous sink.** Applications increasingly pass
+model output straight into `exec`, a shell, or a query. Anyone who can influence the
+prompt, directly or through a document the model reads, controls that output, so prompt
+injection becomes code execution. This is OWASP LLM Top 10 "insecure output handling",
+and most scanners still treat model output as trusted. It needs no engine change, only
+YAML:
+
+```yaml
+- id: py.llm-output-injection
+  severity: critical
+  cwe: CWE-94
+  message: "LLM output reaches code execution, a shell, or a query without validation"
+  kind: taint
+  sources:
+    - pattern: "*.messages.create"
+    - pattern: "*.chat.completions.create"
+    - pattern: "*.generate_content"
+  sinks:
+    - pattern: eval
+      arg: 0
+    - pattern: exec
+      arg: 0
+    - pattern: subprocess.run
+      arg: 0
+    - pattern: "*.execute"
+      arg: 0
+  sanitizers:
+    - pattern: json.loads
+```
+
+Not yet verified: that taint survives the nested access in `reply.content[0].text`, and
+the `eval`/`exec` sinks are new, since no shipped rule covers code execution today.
+
 ## Two things the AI assistant got wrong that I caught
 
 Both are in the parallel scan, and both passed every test until I asked what happens when
