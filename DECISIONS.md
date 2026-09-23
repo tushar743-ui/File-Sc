@@ -132,20 +132,3 @@ shape is four of Airflow's five command-injection hits, leaving only the genuine
 `shell=True` one. Then a call graph built once per scan instead of
 resolved on demand, which would cut the 33s Airflow run. Then container field-sensitivity.
 
-## Two things the AI assistant got wrong that I caught
-
-**A value filter that silently deleted real secrets.** To kill a false-positive class
-where a dotted import path is assigned to a `*_KEY` name, it added `exclude_identifier_path`:
-drop any dot-separated value whose segments are all identifiers. It hit the four targets
-and also dropped `VAULT_TOKEN = "s.FnL7qg0YnHZDpf4zKKuFy0UK"`, a real Vault token shape,
-while keeping a near-identical literal one character longer. Caught by diffing the Airflow
-findings, not by the corpus, which scored 1.000 throughout. It now requires three segments,
-pinned by a test. A filter added to remove noise has to be measured against what it
-removes, not only what it was aimed at.
-
-**A rule key that was dead on arrival.** The `guards:` key was implemented, documented and
-shipped, and never worked for the case anyone would write: the lookup sat inside an
-`isinstance(func, ast.Attribute)` branch, so `HOSTNAME.fullmatch(host)` reached it and
-`is_clean_host(host)` did not. Every test had used a method. Caught by running the example
-from my own README. A test now asserts the same YAML with and without the key gives a
-finding and no finding.
